@@ -1,0 +1,193 @@
+@theme {
+  /* Spacing - 8px grid */
+  --spacing-0: 0;
+  --spacing-1: 0.125rem; /* 2px */
+  --spacing-2: 0.25rem;  /* 4px */
+  --spacing-3: 0.5rem;   /* 8px */
+  --spacing-4: 0.75rem;  /* 12px */
+  --spacing-5: 1rem;     /* 16px */
+  --spacing-6: 1.5rem;   /* 24px */
+  --spacing-7: 2rem;     /* 32px */
+  --spacing-8: 2.5rem;   /* 40px */
+  --spacing-9: 3rem;     /* 48px */
+  --spacing-10: 4rem;    /* 64px */
+
+  /* Border radius */
+  --radius-sm: 0.5rem;   /* 8px */
+  --radius-md: 0.75rem;  /* 12px */
+  --radius-lg: 1rem;     /* 16px */
+  --radius-xl: 1.25rem;  /* 20px */
+  --radius-2xl: 1.5rem;  /* 24px */
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+:root {
+  --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Light Theme Colors */
+  --color-background: 247 248 252;
+  --color-foreground: 10 10 10;
+  --color-card: 255 255 255;
+  --color-card-foreground: 10 10 10;
+  --color-popover: 255 255 255;
+  --color-popover-foreground: 10 10 10;
+  
+  --color-primary: 79 70 229; /* Indigo */
+  --color-primary-foreground: 255 255 255;
+  --color-primary-hover: 67 56 202;
+  
+  --color-secondary: 236 237 244;
+  --color-secondary-foreground: 10 10 10;
+  
+  --color-muted: 241 242 248;
+  --color-muted-foreground: 120 120 135;
+  
+  --color-accent: 240 240 245;
+  --color-accent-foreground: 10 10 10;
+  
+  --color-border: 226 228 236;
+  --color-input: 226 228 236;
+  --color-ring: 99 102 241;
+  
+  --color-success: 34 197 94;
+  --color-success-foreground: 255 255 255;
+  --color-warning: 245 158 11;
+  --color-warning-foreground: 255 255 255;
+  --color-error: 239 68 68;
+  --color-error-foreground: 255 255 255;
+  
+  --color-positive: 34 197 94;
+  --color-neutral: 168 162 158;
+  --color-negative: 239 68 68;
+  
+  --color-chart-1: 79 70 229;
+  --color-chart-2: 14 165 233;
+  --color-chart-3: 236 72 153;
+  --color-chart-4: 249 115 22;
+  --color-chart-5: 34 197 94;
+}
+
+[data-theme="dark"] {
+  /* Dark Theme Colors */
+  --color-background: 9 10 16;
+  --color-foreground: 250 250 250;
+  --color-card: 20 22 30;
+  --color-card-foreground: 250 250 250;
+  --color-popover: 20 22 30;
+  --color-popover-foreground: 250 250 250;
+  
+  --color-primary: 129 140 248; /* Lighter indigo for dark mode */
+  --color-primary-foreground: 10 10 10;
+  --color-primary-hover: 99 102 241;
+  
+  --color-secondary: 28 30 40;
+  --color-secondary-foreground: 250 250 250;
+  
+  --color-muted: 28 30 40;
+  --color-muted-foreground: 162 164 175;
+  
+  --color-accent: 28 30 40;
+  --color-accent-foreground: 250 250 250;
+  
+  --color-border: 34 36 48;
+  --color-input: 34 36 48;
+  --color-ring: 129 140 248;
+  
+  --color-success: 34 197 94;
+  --color-success-foreground: 10 10 10;
+  --color-warning: 245 158 11;
+  --color-warning-foreground: 10 10 10;
+  --color-error: 248 113 113;
+  --color-error-foreground: 10 10 10;
+  
+  --color-positive: 34 197 94;
+  --color-neutral: 168 162 158;
+  --color-negative: 248 113 113;
+  
+  --color-chart-1: 129 140 248;
+  --color-chart-2: 56 189 248;
+  --color-chart-3: 244 114 182;
+  --color-chart-4: 251 146 60;
+  --color-chart-5: 34 197 94;
+}
+
+* {
+  border-color: rgb(var(--color-border));
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: rgb(var(--color-background));
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(14, 165, 233, 0.12), transparent 55%);
+  background-attachment: fixed;
+  color: rgb(var(--color-foreground));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+html[data-theme="dark"] body {
+  background-image:
+    radial-gradient(1200px 600px at 0% -20%, rgba(129, 140, 248, 0.12), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(56, 189, 248, 0.1), transparent 55%);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+
+h3 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+h4 {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+}
+
+.app-shell {
+  background-color: rgb(var(--color-background));
+}
+
+.app-surface {
+  background-color: rgb(var(--color-card) / 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.app-card {
+  background: rgb(var(--color-card));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 1.25rem;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 18px 35px rgba(15, 23, 42, 0.08);
+  position: relative;
+}
+
+[data-theme="dark"] .app-card {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 35px rgba(0, 0, 0, 0.35);
+}

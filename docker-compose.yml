@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fire
+      POSTGRES_PASSWORD: firepass
+      POSTGRES_DB: firedb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fire -d firedb"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://fire:firepass@db:5432/firedb?sslmode=disable"
+      ADMIN_KEY: "dev-admin-key"
+      AI_URL: ""
+      CORS_ALLOWED_ORIGINS: "*"
+      LOG_LEVEL: "info"
+    ports:
+      - "8080:8080"
+  migrate:
+    image: migrate/migrate:v4.17.0
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://fire:firepass@db:5432/firedb?sslmode=disable", "up"]
+volumes:
+  postgres_data:

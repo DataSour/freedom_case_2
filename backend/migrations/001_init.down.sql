@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS assignments;
+DROP TABLE IF EXISTS ai_analysis;
+DROP TABLE IF EXISTS business_units;
+DROP TABLE IF EXISTS managers;
+DROP TABLE IF EXISTS tickets;

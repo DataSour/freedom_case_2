@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+frontend/node_modules/
+backend/tmp/
+dist/
+frontend/dist/
+.vite/
+*.log
+coverage/
