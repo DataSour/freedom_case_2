@@ -142,7 +142,7 @@ CSV (tickets, managers, business_units)
 ### Установка
 
 ```bash
-git clone https://github.com/<your-repo>/freedom-fire.git
+git clone https://github.com/DataSour/freedom_case_2.git
 cd freedom-fire
 pip install -r requirements.txt
 ```
