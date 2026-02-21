@@ -55,7 +55,13 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 func (s *Store) InsertTickets(ctx context.Context, tickets []models.Ticket) (int64, error) {
 	rows := make([][]any, 0, len(tickets))
 	for _, t := range tickets {
-		rows = append(rows, []any{t.ID, t.CreatedAt, t.Segment, t.City, t.Address, t.Message, t.RawJSON})
+		var raw any
+		if strings.TrimSpace(t.RawJSON) != "" {
+			raw = t.RawJSON
+		} else {
+			raw = nil
+		}
+		rows = append(rows, []any{t.ID, t.CreatedAt, t.Segment, t.City, t.Address, t.Message, raw})
 	}
 	copyCount, err := s.Pool.CopyFrom(ctx, pgx.Identifier{"tickets"}, []string{"id", "created_at", "segment", "city", "address", "message", "raw_json"}, pgx.CopyFromRows(rows))
 	return copyCount, err
@@ -98,7 +104,7 @@ func (s *Store) ListBusinessUnits(ctx context.Context) ([]models.BusinessUnit, e
 }
 
 func (s *Store) ListManagers(ctx context.Context, office string, skill string) ([]models.Manager, error) {
-	query := `SELECT id, name, office, role, skills, current_load, updated_at FROM managers`
+	query := `SELECT id, name, office, role, skills, current_load, COALESCE(updated_at, NOW()) FROM managers`
 	var args []any
 	var wheres []string
 	if office != "" {
@@ -126,13 +132,16 @@ func (s *Store) ListManagers(ctx context.Context, office string, skill string) (
 		if err := rows.Scan(&m.ID, &m.Name, &m.Office, &m.Role, &m.Skills, &m.CurrentLoad, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
+		if m.UpdatedAt.IsZero() {
+			m.UpdatedAt = time.Now().UTC()
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
 }
 
 func (s *Store) ListManagersByOffice(ctx context.Context, office string) ([]models.Manager, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id, name, office, role, skills, current_load, updated_at FROM managers WHERE office = $1 ORDER BY current_load ASC, id ASC`, office)
+	rows, err := s.Pool.Query(ctx, `SELECT id, name, office, role, skills, current_load, COALESCE(updated_at, NOW()) FROM managers WHERE office = $1 ORDER BY current_load ASC, id ASC`, office)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +166,8 @@ func (s *Store) ListTickets(ctx context.Context, status, office, language, q str
 		offset = 0
 	}
 
-	query := `SELECT t.id, t.created_at, t.segment, t.city, t.address, t.message,
+	query := `SELECT t.id, t.created_at, t.segment,
+		COALESCE(t.city, ''), COALESCE(t.address, ''), COALESCE(t.message, ''),
 		a.status, a.office, a.manager_id, a.reason_code, a.reason_text,
 		ai.language, ai.priority, ai.type, ai.sentiment
 		FROM tickets t
@@ -239,7 +249,8 @@ func (s *Store) ListTickets(ctx context.Context, status, office, language, q str
 
 func (s *Store) GetTicketDetails(ctx context.Context, ticketID string) (map[string]any, error) {
 	row := s.Pool.QueryRow(ctx, `
-		SELECT t.id, t.created_at, t.segment, t.city, t.address, t.message, t.raw_json,
+		SELECT t.id, t.created_at, t.segment,
+			COALESCE(t.city, ''), COALESCE(t.address, ''), COALESCE(t.message, ''), COALESCE(t.raw_json::text, ''),
 			a.id, a.manager_id, a.office, a.status, a.reason_code, a.reason_text, a.reasoning, a.assigned_at,
 			ai.id, ai.type, ai.sentiment, ai.priority, ai.language, ai.summary, ai.recommendation, ai.lat, ai.lon, ai.confidence, ai.model_version, ai.created_at
 		FROM tickets t
@@ -347,7 +358,8 @@ func derefFloat(v *float64) float64 {
 
 func (s *Store) GetTicketsForProcessing(ctx context.Context) ([]models.Ticket, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT t.id, t.created_at, t.segment, t.city, t.address, t.message, t.raw_json
+		SELECT t.id, t.created_at, t.segment,
+			COALESCE(t.city, ''), COALESCE(t.address, ''), COALESCE(t.message, ''), COALESCE(t.raw_json::text, '')
 		FROM tickets t
 		LEFT JOIN assignments a ON a.ticket_id = t.id
 		WHERE a.ticket_id IS NULL

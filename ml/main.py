@@ -18,7 +18,18 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_client = None
+
+
+def _get_client() -> Groq:
+    global _client
+    if _client is not None:
+        return _client
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    _client = Groq(api_key=api_key)
+    return _client
 
 SYSTEM_PROMPT = """\
 Ты — аналитик экосистемы Freedom (Broker, Bank, Insurance). \
@@ -152,6 +163,7 @@ def analyze(
             if not has_image:
                 kwargs["response_format"] = {"type": "json_object"}
 
+            client = _get_client()
             chat_completion = client.chat.completions.create(**kwargs)
             raw = chat_completion.choices[0].message.content
             return json.loads(raw)

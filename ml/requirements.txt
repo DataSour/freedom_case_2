@@ -2,3 +2,5 @@ pandas
 python-dotenv
 geopy
 groq
+fastapi
+uvicorn

@@ -16,20 +16,31 @@ services:
       - postgres_data:/var/lib/postgresql/data
   backend:
     build: ./backend
+    volumes:
+      - ./ml/units_coords_cache.json:/app/units_coords_cache.json:ro
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      ml:
+        condition: service_started
     environment:
       PORT: "8080"
       DATABASE_URL: "postgres://fire:firepass@db:5432/firedb?sslmode=disable"
       ADMIN_KEY: "dev-admin-key"
-      AI_URL: ""
+      AI_URL: "http://ml:8000"
       CORS_ALLOWED_ORIGINS: "*"
       LOG_LEVEL: "info"
+      UNITS_COORDS_CACHE_PATH: "/app/units_coords_cache.json"
     ports:
       - "8080:8080"
+  ml:
+    build: ./ml
+    env_file:
+      - ./ml/.env
+    ports:
+      - "8000:8000"
   migrate:
     image: migrate/migrate:v4.17.0
     depends_on:

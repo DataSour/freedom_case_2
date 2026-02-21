@@ -6,11 +6,13 @@ Full-stack F.I.R.E. hackathon project.
 - `frontend/`: React + Vite UI
 - `backend/`: Go (Gin) API + PostgreSQL + migrations
 - `ml/`: ML/AI assets, datasets, and experiments
-- `docker-compose.yml`: runs API + DB + migrations
+- `docker-compose.yml`: runs API + DB + migrations + ML service
 
 ## Quick Start (Docker)
 From repo root:
 ```
+export GROQ_API_KEY=your_key_here
+
 docker compose up --build
 ```
 
@@ -28,6 +30,16 @@ make migrate-up
 make run
 ```
 
+## ML Service (local)
+```
+cd ml
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export GROQ_API_KEY=your_key_here
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
 ## Environment Variables
 
 ### Frontend (`frontend/.env`)
@@ -38,11 +50,14 @@ make run
 - `PORT` (default `8080`)
 - `DATABASE_URL` (required)
 - `ADMIN_KEY` (required for admin endpoints)
-- `AI_URL` (optional; empty uses mock adapter)
+- `AI_URL` (ML service base URL; default in docker is `http://ml:8000`)
 - `CORS_ALLOWED_ORIGINS` (default `*`)
 - `REQUEST_TIMEOUT` (default `30s`)
 - `LOG_LEVEL` (default `info`)
 - `MAX_UPLOAD_MB` (default `20`)
+
+### ML Service
+- `GROQ_API_KEY` (required)
 
 ## Key API Endpoints
 - `POST /api/import` (multipart: tickets, managers, business_units)

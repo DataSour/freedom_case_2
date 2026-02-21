@@ -63,6 +63,7 @@ func Router(cfg config.Config, store *db.Store, adapter ai.Adapter, logger zerol
 		admin.POST("/import", h.Import)
 		admin.POST("/process", h.Process)
 		admin.POST("/tickets/:id/reassign", h.Reassign)
+		admin.GET("/debug/eligibility", h.DebugEligibility)
 	}
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

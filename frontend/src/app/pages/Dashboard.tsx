@@ -121,11 +121,18 @@ export function Dashboard() {
       { name: 'Negative', value: sentimentCounts.Negative, color: '#ef4444' }
     ];
 
-    const officeDistribution = {
-      Astana: tickets.filter(t => t.office === 'Astana').length,
-      Almaty: tickets.filter(t => t.office === 'Almaty').length,
-      unassigned,
-    };
+    const officeMap: Record<string, number> = {};
+    tickets.forEach(t => {
+      const key = t.office || 'Unassigned';
+      officeMap[key] = (officeMap[key] || 0) + 1;
+    });
+
+    const officeDistribution = Object.entries(officeMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.name !== 'Unassigned');
+
+    const unassignedCount = officeMap['Unassigned'] || unassigned;
 
     const ticketsOverTime = buildLast7Days(tickets);
 
@@ -139,6 +146,7 @@ export function Dashboard() {
       ticketTypes,
       sentimentDistribution,
       officeDistribution,
+      unassignedCount,
       ticketsOverTime,
     };
   }, [tickets]);
@@ -156,7 +164,10 @@ export function Dashboard() {
       }));
   }, [tickets]);
 
-  const managerRows = managers.slice(0, 4).map(m => ({
+  const managerRows = [...managers]
+    .sort((a, b) => (b.current_load || 0) - (a.current_load || 0))
+    .slice(0, 6)
+    .map(m => ({
     ...m,
     capacity: Math.max(20, m.current_load + 5),
   }));
@@ -334,44 +345,32 @@ export function Dashboard() {
         <Card>
           <CardHeader title="Office Distribution" description="Ticket assignment by location" />
           <div className="space-y-4">
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                  <span className="text-sm font-medium">Astana</span>
+            {analytics.officeDistribution.slice(0, 5).map((office, idx) => (
+              <div key={office.name}>
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${idx % 2 === 0 ? 'bg-indigo-500' : 'bg-purple-500'}`} />
+                    <span className="text-sm font-medium">{office.name}</span>
+                  </div>
+                  <span className="text-sm font-medium">{office.value}</span>
                 </div>
-                <span className="text-sm font-medium">{analytics.officeDistribution.Astana}</span>
+                <ProgressBar
+                  value={office.value}
+                  max={analytics.totalTickets || 1}
+                  variant={idx % 2 === 0 ? 'default' : 'success'}
+                />
               </div>
-              <ProgressBar
-                value={analytics.officeDistribution.Astana}
-                max={analytics.totalTickets || 1}
-                variant="default"
-              />
-            </div>
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-purple-500" />
-                  <span className="text-sm font-medium">Almaty</span>
-                </div>
-                <span className="text-sm font-medium">{analytics.officeDistribution.Almaty}</span>
-              </div>
-              <ProgressBar
-                value={analytics.officeDistribution.Almaty}
-                max={analytics.totalTickets || 1}
-                variant="success"
-              />
-            </div>
+            ))}
             <div>
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-gray-400" />
                   <span className="text-sm font-medium">Unassigned</span>
                 </div>
-                <span className="text-sm font-medium">{analytics.officeDistribution.unassigned}</span>
+                <span className="text-sm font-medium">{analytics.unassignedCount}</span>
               </div>
               <ProgressBar
-                value={analytics.officeDistribution.unassigned}
+                value={analytics.unassignedCount}
                 max={analytics.totalTickets || 1}
                 variant="warning"
               />

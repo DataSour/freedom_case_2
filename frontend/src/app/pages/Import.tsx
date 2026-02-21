@@ -112,13 +112,39 @@ export function Import() {
   const handleRunProcessing = async () => {
     setIsProcessing(true);
     setProcessingStep('parse');
-    setProcessingProgress(0);
+    setProcessingProgress(10);
     setLogs([]);
     setSummary(null);
 
     addLog('info', 'Starting processing pipeline...');
 
     try {
+      const hasFiles =
+        files.tickets.file && files.managers.file && files.businessUnits.file;
+      const needsImport =
+        hasFiles &&
+        (files.tickets.status !== 'validated' ||
+          files.managers.status !== 'validated' ||
+          files.businessUnits.status !== 'validated');
+
+      if (needsImport) {
+        addLog('info', 'Importing CSV files before processing...');
+        const result: ImportSummary = await api.importCSV({
+          tickets: files.tickets.file!,
+          managers: files.managers.file!,
+          business_units: files.businessUnits.file!,
+        });
+        addLog('success', `Parsed tickets.csv: ${result.tickets.parsed} rows`);
+        addLog('success', `Parsed managers.csv: ${result.managers.parsed} rows`);
+        addLog('success', `Parsed business_units.csv: ${result.business_units.parsed} rows`);
+        setFiles(prev => ({
+          tickets: { ...prev.tickets, status: 'validated', rows: result.tickets.inserted },
+          managers: { ...prev.managers, status: 'validated', rows: result.managers.inserted },
+          businessUnits: { ...prev.businessUnits, status: 'validated', rows: result.business_units.inserted },
+        }));
+        setProcessingProgress(30);
+      }
+
       const result: RunSummary = await api.processTickets();
       const events = result.events || [];
       const counts = result.counts || {};
@@ -126,10 +152,16 @@ export function Import() {
       events.forEach((event: any) => {
         if (event.type === 'ai_enrichment') {
           addLog('success', `AI enrichment complete: ${event.count} tickets`);
+          setProcessingStep('enrich');
+          setProcessingProgress(55);
         } else if (event.type === 'assignment') {
           addLog('success', `Assigned: ${event.assigned}, Unassigned: ${event.unassigned}`);
+          setProcessingStep('assign');
+          setProcessingProgress(75);
         } else if (event.type === 'db_save') {
           addLog('success', 'Saved processing results to DB');
+          setProcessingStep('save');
+          setProcessingProgress(90);
         } else if (event.type === 'office_selection') {
           addLog('info', `Office selection: geo=${event.geo_coverage}, fallback=${event.fallback_count}`);
         }

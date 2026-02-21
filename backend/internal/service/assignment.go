@@ -9,46 +9,92 @@ import (
 )
 
 type EligibilityResult struct {
-	Eligible []models.Manager
-	Reasons  []string
+	Eligible   []models.Manager
+	ReasonCode string
+	ReasonText string
+	Stages     []EligibilityStage
+	NeedsVIP   bool
+	NeedsRole  bool
+	NeedsLang  string
+}
+
+type EligibilityStage struct {
+	Name       string
+	Candidates []models.Manager
 }
 
 func FilterEligibleManagers(managers []models.Manager, ticket models.Ticket, ai models.AIAnalysis) EligibilityResult {
-	var eligible []models.Manager
-	var reasons []string
+	needsVIP := strings.EqualFold(strings.TrimSpace(ticket.Segment), "VIP") || ai.Priority >= 9
+	needsRole := strings.EqualFold(strings.TrimSpace(ai.Type), "Change of data")
+	needsLang := strings.ToUpper(strings.TrimSpace(ai.Language))
 
-	needsVIP := strings.EqualFold(ticket.Segment, "VIP") || ai.Priority >= 9
-	needsRole := strings.EqualFold(ai.Type, "Change of data")
-	needsLang := ai.Language
-
-	for _, m := range managers {
-		if needsVIP && !hasSkill(m.Skills, "VIP") {
-			continue
-		}
-		if needsRole && !strings.EqualFold(m.Role, "Глав спец") {
-			continue
-		}
-		if needsLang != "" && (needsLang == "KZ" || needsLang == "ENG" || needsLang == "RU") {
-			if !hasSkill(m.Skills, needsLang) {
-				continue
-			}
-		}
-		eligible = append(eligible, m)
+	result := EligibilityResult{
+		NeedsVIP:  needsVIP,
+		NeedsRole: needsRole,
+		NeedsLang: needsLang,
 	}
 
-	if len(eligible) == 0 {
-		if needsVIP {
-			reasons = append(reasons, "VIP_REQUIRED")
-		}
-		if needsRole {
-			reasons = append(reasons, "ROLE_REQUIRED")
-		}
-		if needsLang != "" {
-			reasons = append(reasons, "LANGUAGE_REQUIRED")
-		}
+	result.Stages = append(result.Stages, EligibilityStage{
+		Name:       "office_candidates",
+		Candidates: managers,
+	})
+
+	if len(managers) == 0 {
+		result.ReasonCode = "NO_ELIGIBLE_MANAGERS"
+		result.ReasonText = "No managers in selected office"
+		return result
 	}
 
-	return EligibilityResult{Eligible: eligible, Reasons: reasons}
+	afterVIP := managers
+	if needsVIP {
+		afterVIP = filterManagers(afterVIP, func(m models.Manager) bool {
+			return hasSkill(m.Skills, "VIP")
+		})
+	}
+	result.Stages = append(result.Stages, EligibilityStage{
+		Name:       "vip_rule",
+		Candidates: afterVIP,
+	})
+	if needsVIP && len(afterVIP) == 0 {
+		result.ReasonCode = "VIP_REQUIRED_NO_MATCH"
+		result.ReasonText = "VIP skill required"
+		return result
+	}
+
+	afterRole := afterVIP
+	if needsRole {
+		afterRole = filterManagers(afterRole, func(m models.Manager) bool {
+			return strings.EqualFold(strings.TrimSpace(m.Role), "Глав спец")
+		})
+	}
+	result.Stages = append(result.Stages, EligibilityStage{
+		Name:       "role_rule",
+		Candidates: afterRole,
+	})
+	if needsRole && len(afterRole) == 0 {
+		result.ReasonCode = "ROLE_MISMATCH"
+		result.ReasonText = "Role must be Глав спец"
+		return result
+	}
+
+	afterLang := afterRole
+	if needsLang == "KZ" || needsLang == "ENG" || needsLang == "RU" {
+		afterLang = filterManagers(afterLang, func(m models.Manager) bool {
+			return hasSkill(m.Skills, needsLang)
+		})
+	}
+	result.Stages = append(result.Stages, EligibilityStage{
+		Name:       "language_rule",
+		Candidates: afterLang,
+	})
+	if (needsLang == "KZ" || needsLang == "ENG" || needsLang == "RU") && len(afterLang) == 0 {
+		result.ReasonCode = "LANGUAGE_MISMATCH"
+		result.ReasonText = "Language skill required"
+		return result
+	}
+
+	result.Eligible = afterLang
+	return result
 }
 
 func PickAssignee(ticketID string, eligible []models.Manager) (models.Manager, []models.Manager) {
@@ -76,4 +122,14 @@ func hasSkill(skills []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func filterManagers(managers []models.Manager, keep func(models.Manager) bool) []models.Manager {
+	out := make([]models.Manager, 0, len(managers))
+	for _, m := range managers {
+		if keep(m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
