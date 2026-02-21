@@ -5,7 +5,8 @@ Full-stack F.I.R.E. hackathon project.
 ## Overview
 - `frontend/`: React + Vite UI
 - `backend/`: Go (Gin) API + PostgreSQL + migrations
-- `docker-compose.yml`: runs API + DB + migrations
+- `main.py`: ML/AI utilities (data prep / experiments)
+- `*.csv`, `*.png`, `final_results.csv`: sample data + artifacts
 
 ## Quick Start (Docker)
 From repo root:
@@ -53,6 +54,10 @@ make run
 - `POST /api/tickets/:id/reassign` (admin)
 - `GET /healthz`
 
-## Notes
-- Docker compose includes a migration container that runs `golang-migrate` automatically.
-- Swagger UI: `http://localhost:8080/swagger/index.html`.
+## ML / Data Artifacts
+- `main.py`: scripts/experiments for AI enrichment and dataset handling
+- `requirements.txt`: Python dependencies
+- `tickets.csv`, `managers.csv`, `business_units.csv`: sample datasets
+- `final_results.csv`: sample results
+- `data_error.png`, `order_error.png`: sample output images
+- `THE F.I.R.E. CHALLENGE.docx`: source brief
