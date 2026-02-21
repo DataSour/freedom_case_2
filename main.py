@@ -307,7 +307,7 @@ def get_nearest_unit(
 
     is_foreign = (
         client_country
-        and str(client_country).lower() not in ("казахстан", "kazakhstan", "kz", "nan", "")
+        and str(client_country).lower() not in ("қазақстан", "qazaqstan", "рк", "rk", "казахстан", "kazakhstan", "kz", "nan", "")
     )
 
     if client_lat is None or client_lon is None or is_foreign:
