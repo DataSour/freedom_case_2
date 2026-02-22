@@ -9,11 +9,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,22 +21,21 @@ import (
 
 	"github.com/freedom_case_2/backend/internal/ai"
 	"github.com/freedom_case_2/backend/internal/db"
+	"github.com/freedom_case_2/backend/internal/geocode"
 	"github.com/freedom_case_2/backend/internal/models"
 	"github.com/freedom_case_2/backend/internal/service"
 )
 
 type Handler struct {
-	Store     *db.Store
-	AI        ai.Adapter
-	Validator *validator.Validate
-	Logger    zerolog.Logger
-	AdminKey  string
+	Store          *db.Store
+	AI             ai.Adapter
+	Assistant      ai.Assistant
+	Geocoder       geocode.Geocoder
+	Validator      *validator.Validate
+	Logger         zerolog.Logger
+	AdminKey       string
+	CountryDefault string
 }
-
-var (
-	unitsCoordsOnce  sync.Once
-	unitsCoordsCache map[string][2]float64
-)
 
 type ImportSummary struct {
 	Tickets struct {
@@ -47,14 +44,19 @@ type ImportSummary struct {
 		Errors   int `json:"errors"`
 	} `json:"tickets"`
 	Managers struct {
-		Parsed   int `json:"parsed"`
-		Inserted int `json:"inserted"`
-		Errors   int `json:"errors"`
+		Parsed          int `json:"parsed"`
+		Inserted        int `json:"inserted"`
+		Errors          int `json:"errors"`
+		Upserted        int `json:"upserted_count"`
+		LoadInitialized int `json:"current_load_initialized_count"`
 	} `json:"managers"`
 	BusinessUnits struct {
-		Parsed   int `json:"parsed"`
-		Inserted int `json:"inserted"`
-		Errors   int `json:"errors"`
+		Parsed           int                 `json:"parsed"`
+		Inserted         int                 `json:"inserted"`
+		Errors           int                 `json:"errors"`
+		GeocodedOK       int                 `json:"geocoded_ok_count"`
+		GeocodedFailed   int                 `json:"geocoded_failed_count"`
+		GeocodedFailures []map[string]string `json:"geocoded_failures,omitempty"`
 	} `json:"business_units"`
 	Errors []string `json:"errors"`
 }
@@ -147,12 +149,14 @@ func (h *Handler) Import(c *gin.Context) {
 	}
 	summary.Tickets.Inserted = int(inserted)
 
-	inserted, err = h.Store.InsertManagers(ctx, managers)
+	inserted, err = h.Store.UpsertManagers(ctx, managers)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Failed to insert managers", err.Error())
 		return
 	}
 	summary.Managers.Inserted = int(inserted)
+	summary.Managers.Upserted = int(inserted)
+	summary.Managers.LoadInitialized = int(inserted)
 
 	inserted, err = h.Store.InsertBusinessUnits(ctx, units)
 	if err != nil {
@@ -160,6 +164,12 @@ func (h *Handler) Import(c *gin.Context) {
 		return
 	}
 	summary.BusinessUnits.Inserted = int(inserted)
+	if h.Geocoder != nil {
+		okCount, failedCount, failures := h.geocodeBusinessUnits(ctx, units, false)
+		summary.BusinessUnits.GeocodedOK = okCount
+		summary.BusinessUnits.GeocodedFailed = failedCount
+		summary.BusinessUnits.GeocodedFailures = failures
+	}
 
 	c.JSON(http.StatusOK, summary)
 }
@@ -211,6 +221,62 @@ func (h *Handler) RunsLatest(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// @Summary Business units list
+// @Tags business-units
+// @Produce json
+// @Param geocoded query bool false "Filter by geocoded"
+// @Param q query string false "Search by office/address"
+// @Success 200 {object} map[string]any
+// @Router /api/business-units [get]
+func (h *Handler) BusinessUnitsList(c *gin.Context) {
+	var geocoded *bool
+	if v := strings.TrimSpace(c.Query("geocoded")); v != "" {
+		val := strings.EqualFold(v, "true") || v == "1"
+		geocoded = &val
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	units, err := h.Store.ListBusinessUnitsFiltered(c.Request.Context(), geocoded, q)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Failed to list business units", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": units})
+}
+
+// @Summary Re-geocode business units
+// @Tags business-units
+// @Produce json
+// @Param force query bool false "Force re-geocode"
+// @Success 200 {object} map[string]any
+// @Router /api/business-units/regeocode [post]
+func (h *Handler) RegeocodeBusinessUnits(c *gin.Context) {
+	if h.Geocoder == nil {
+		writeError(c, http.StatusBadRequest, "GEOCODER_DISABLED", "Geocoder not configured", nil)
+		return
+	}
+	force := strings.EqualFold(c.Query("force"), "true") || c.Query("force") == "1"
+	var (
+		units []models.BusinessUnit
+		err   error
+	)
+	if force {
+		units, err = h.Store.ListBusinessUnitsFiltered(c.Request.Context(), nil, "")
+	} else {
+		geocoded := false
+		units, err = h.Store.ListBusinessUnitsFiltered(c.Request.Context(), &geocoded, "")
+	}
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Failed to load business units", err.Error())
+		return
+	}
+	okCount, failedCount, failures := h.geocodeBusinessUnits(c.Request.Context(), units, force)
+	c.JSON(http.StatusOK, gin.H{
+		"geocoded_ok_count":     okCount,
+		"geocoded_failed_count": failedCount,
+		"geocoded_failures":     failures,
+	})
+}
+
 func (h *Handler) TicketsList(c *gin.Context) {
 	status := c.Query("status")
 	office := normalizeOfficeName(c.Query("office"))
@@ -225,6 +291,26 @@ func (h *Handler) TicketsList(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items, "limit": limit, "offset": offset})
+}
+
+// @Summary Resolve ticket
+// @Tags tickets
+// @Produce json
+// @Param id path string true "Ticket ID"
+// @Success 200 {object} map[string]any
+// @Router /api/tickets/:id/resolve [post]
+func (h *Handler) ResolveTicket(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", "ticket id required", nil)
+		return
+	}
+	_, err := h.Store.UpdateAssignmentStatus(c.Request.Context(), id, "RESOLVED")
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Failed to resolve ticket", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "RESOLVED"})
 }
 
 func (h *Handler) TicketDetails(c *gin.Context) {
@@ -286,12 +372,12 @@ func (h *Handler) DebugEligibility(c *gin.Context) {
 		return
 	}
 	ai := service.NormalizeAI(models.AIAnalysis{
-		TicketID: ticket.ID,
-		Type:     getString(aiRaw, "type"),
-		Priority: getInt(aiRaw, "priority"),
-		Language: getString(aiRaw, "language"),
-		Lat:      getFloat(aiRaw, "lat"),
-		Lon:      getFloat(aiRaw, "lon"),
+		TicketID:   ticket.ID,
+		Type:       getString(aiRaw, "type"),
+		Priority:   getInt(aiRaw, "priority"),
+		Language:   getString(aiRaw, "language"),
+		Lat:        getFloat(aiRaw, "lat"),
+		Lon:        getFloat(aiRaw, "lon"),
 		Confidence: getFloat(aiRaw, "confidence"),
 	})
 
@@ -331,13 +417,184 @@ func (h *Handler) DebugEligibility(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+type AssistantRequest struct {
+	Message string           `json:"message" validate:"required"`
+	History []ai.ChatMessage `json:"history,omitempty"`
+}
+
+func (h *Handler) AssistantChat(c *gin.Context) {
+	var req AssistantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid payload", err.Error())
+		return
+	}
+	if err := h.Validator.Struct(req); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Validation failed", err.Error())
+		return
+	}
+
+	ctxData, err := h.Store.GetAssistantContext(c.Request.Context())
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Failed to load assistant context", err.Error())
+		return
+	}
+	contextJSON, _ := json.Marshal(ctxData)
+
+	systemPrompt := `You are FIRE Assistant for the ticket routing system. 
+Use the provided CONTEXT(JSON) as the source of truth for counts, assignments, managers, offices (business units), and latest runs.
+If the user asks about system state, tickets, managers, offices, or reasons, answer using the context.
+If data is missing, say you don't have that data. Answer in the user's language. Be concise and specific.
+If the user asks general definitions (e.g., "who is a manager"), provide a short domain explanation.
+
+Assignment rules summary:
+1) Office selection: if geo.confidence >= 0.70 -> nearest office by haversine distance, else deterministic 50/50 split by hash(ticket_id) between ASTANA/ALMATY.
+2) Hard rules:
+   - VIP rule: if segment==VIP OR priority>=9, manager must have VIP skill.
+   - Change of data: if type=="Change of data", manager role must be "Глав спец".
+   - Language: if language in {KZ, ENG, RU}, manager must have that language skill.
+3) If no eligible managers after rules -> UNASSIGNED with reason_code (VIP_REQUIRED_NO_MATCH, ROLE_MISMATCH, LANGUAGE_MISMATCH, or NO_ELIGIBLE_MANAGERS).
+4) If eligible: pick top-2 least loaded, then deterministic round-robin with hash(ticket_id) % len(top2).
+
+How to submit a complaint (ticket):
+Create a ticket via the UI (tickets/import) or upload tickets.csv via Import. The system treats complaints as tickets and will process them through the pipeline.
+
+If the user asks for a chart or distribution, respond with a strict JSON object only:
+{
+  "intent": "chart",
+  "title": "...",
+  "chart": "bar|stacked_bar|pie",
+  "group_by": ["city","type"], 
+  "filters": {}
+}
+Use group_by fields from: city, type, segment, language, sentiment, office, status, manager_id.`
+
+	fullPrompt := fmt.Sprintf("%s\n\nCONTEXT(JSON): %s\n\nUSER QUESTION: %s", systemPrompt, string(contextJSON), req.Message)
+
+	answer, err := h.Assistant.Ask(c.Request.Context(), fullPrompt, req.History)
+	if err != nil {
+		if rl, ok := err.(ai.RateLimitError); ok {
+			writeError(c, http.StatusTooManyRequests, "AI_RATE_LIMIT", "Assistant rate limited", map[string]any{
+				"retry_after_seconds": int(rl.RetryAfter.Seconds()),
+			})
+			return
+		}
+		h.Logger.Error().Err(err).Msg("assistant failed")
+		writeError(c, http.StatusInternalServerError, "AI_ERROR", "Assistant failed", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"answer": answer,
+	})
+}
+
+type AnalyticsQueryRequest struct {
+	GroupBy []string          `json:"group_by" validate:"required,min=1"`
+	Filters map[string]string `json:"filters,omitempty"`
+	Limit   int               `json:"limit,omitempty"`
+}
+
+func (h *Handler) AnalyticsQuery(c *gin.Context) {
+	var req AnalyticsQueryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid payload", err.Error())
+		return
+	}
+	if err := h.Validator.Struct(req); err != nil {
+		writeError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Validation failed", err.Error())
+		return
+	}
+
+	allowed := map[string]string{
+		"city":       "t.city",
+		"type":       "ai.type",
+		"segment":    "t.segment",
+		"language":   "ai.language",
+		"sentiment":  "ai.sentiment",
+		"office":     "a.office",
+		"status":     "a.status",
+		"manager_id": "a.manager_id",
+	}
+
+	var groupCols []string
+	var selectCols []string
+	for _, g := range req.GroupBy {
+		col, ok := allowed[g]
+		if !ok {
+			writeError(c, http.StatusBadRequest, "INVALID_GROUP", "Unsupported group_by field", g)
+			return
+		}
+		groupCols = append(groupCols, col)
+		selectCols = append(selectCols, fmt.Sprintf("%s AS %s", col, g))
+	}
+
+	whereClauses := []string{}
+	args := []any{}
+	if req.Filters != nil {
+		for k, v := range req.Filters {
+			col, ok := allowed[k]
+			if !ok {
+				writeError(c, http.StatusBadRequest, "INVALID_FILTER", "Unsupported filter field", k)
+				return
+			}
+			args = append(args, v)
+			whereClauses = append(whereClauses, fmt.Sprintf("%s = $%d", col, len(args)))
+		}
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s, COUNT(*) AS count
+		FROM tickets t
+		LEFT JOIN ai_analysis ai ON ai.ticket_id = t.id
+		LEFT JOIN assignments a ON a.ticket_id = t.id
+	`, strings.Join(selectCols, ", "))
+	if len(whereClauses) > 0 {
+		query += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+	query += " GROUP BY " + strings.Join(groupCols, ", ")
+	query += " ORDER BY COUNT(*) DESC"
+	query += fmt.Sprintf(" LIMIT %d", limit)
+
+	rows, err := h.Store.Pool.Query(c.Request.Context(), query, args...)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "DB_ERROR", "Query failed", err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var results []map[string]any
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "DB_ERROR", "Query failed", err.Error())
+			return
+		}
+		if len(values) != len(req.GroupBy)+1 {
+			continue
+		}
+		row := map[string]any{}
+		for i, key := range req.GroupBy {
+			row[key] = values[i]
+		}
+		row["count"] = values[len(values)-1]
+		results = append(results, row)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": results})
+}
+
 type ReassignRequest struct {
 	ManagerID string `json:"manager_id" validate:"required"`
 	Reason    string `json:"reason" validate:"required"`
 }
 
 func (h *Handler) Reassign(c *gin.Context) {
-	id := c.Param("id")	
+	id := c.Param("id")
 	var req ReassignRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid payload", err.Error())
@@ -388,9 +645,9 @@ func (h *Handler) Reassign(c *gin.Context) {
 	eligible := service.FilterEligibleManagers([]models.Manager{*manager}, ticket, ai)
 	override := len(eligible.Eligible) == 0
 	reasoning := map[string]any{
-		"manual": true,
+		"manual":   true,
 		"override": override,
-		"reason": req.Reason,
+		"reason":   req.Reason,
 	}
 	b, _ := json.Marshal(reasoning)
 	if err := h.Store.Reassign(c.Request.Context(), id, req.ManagerID, manager.Office, b, req.Reason, override); err != nil {
@@ -523,13 +780,14 @@ func parseManagersCSV(file *multipart.FileHeader) ([]models.Manager, []string) {
 		}
 
 		m := models.Manager{
-			ID:          id,
-			Name:        name,
-			Office:      normalizeOfficeName(office),
-			Role:        normalizeRole(role),
-			Skills:      skills,
-			CurrentLoad: load,
-			UpdatedAt:   time.Now().UTC(),
+			ID:           id,
+			Name:         name,
+			Office:       normalizeOfficeName(office),
+			Role:         normalizeRole(role),
+			Skills:       skills,
+			CurrentLoad:  0,
+			BaselineLoad: load,
+			UpdatedAt:    time.Now().UTC(),
 		}
 		if m.Name == "" || m.Office == "" {
 			errors = append(errors, "manager id/name/office required")
@@ -583,22 +841,6 @@ func parseBusinessUnitsCSV(file *multipart.FileHeader) ([]models.BusinessUnit, [
 		if city == "" {
 			city = normalizedOffice
 		}
-		if lat == 0 && lon == 0 {
-			if cache := getUnitsCoordsCache(); len(cache) > 0 {
-				if c, ok := cache[normalizeKey(normalizedOffice)]; ok {
-					lat, lon = c[0], c[1]
-				} else if c, ok := cache[normalizeKey(city)]; ok {
-					lat, lon = c[0], c[1]
-				} else if c, ok := cache[normalizeKey(name)]; ok {
-					lat, lon = c[0], c[1]
-				} else if c, ok := cache[normalizeKey(address)]; ok {
-					lat, lon = c[0], c[1]
-				}
-			}
-		}
-		if lat == 0 && lon == 0 {
-			lat, lon = defaultOfficeCoords(normalizedOffice)
-		}
 		if id == "" {
 			id = strings.ToLower(strings.ReplaceAll(normalizedOffice, " ", "-"))
 			if id == "" {
@@ -606,12 +848,20 @@ func parseBusinessUnitsCSV(file *multipart.FileHeader) ([]models.BusinessUnit, [
 			}
 		}
 
+		var latPtr *float64
+		var lonPtr *float64
+		if lat != 0 || lon != 0 {
+			latPtr = &lat
+			lonPtr = &lon
+		}
+
 		u := models.BusinessUnit{
-			ID:   id,
-			Name: normalizedOffice,
-			City: normalizeCity(city),
-			Lat:  lat,
-			Lon:  lon,
+			ID:      id,
+			Name:    normalizedOffice,
+			City:    normalizeCity(city),
+			Address: address,
+			Lat:     latPtr,
+			Lon:     lonPtr,
 		}
 		if u.ID == "" || u.Name == "" {
 			errors = append(errors, "business unit id/name required")
@@ -705,17 +955,6 @@ func normalizeSegment(value string) string {
 	return strings.ToUpper(strings.TrimSpace(value))
 }
 
-func defaultOfficeCoords(office string) (float64, float64) {
-	switch office {
-	case "ASTANA":
-		return 51.1605, 71.4704
-	case "ALMATY":
-		return 43.2220, 76.8512
-	default:
-		return 0, 0
-	}
-}
-
 func normalizeTrim(v string) string {
 	return strings.TrimSpace(v)
 }
@@ -782,40 +1021,6 @@ func normalizeRole(value string) string {
 	return v
 }
 
-func normalizeKey(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
-}
-
-func getUnitsCoordsCache() map[string][2]float64 {
-	unitsCoordsOnce.Do(func() {
-		unitsCoordsCache = map[string][2]float64{}
-		path := strings.TrimSpace(os.Getenv("UNITS_COORDS_CACHE_PATH"))
-		if path == "" {
-			return
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return
-		}
-		var raw map[string][]float64
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return
-		}
-		for k, v := range raw {
-			if len(v) < 2 {
-				continue
-			}
-			key := normalizeKey(k)
-			unitsCoordsCache[key] = [2]float64{v[0], v[1]}
-			normOffice := normalizeKey(normalizeOfficeName(k))
-			if normOffice != "" {
-				unitsCoordsCache[normOffice] = [2]float64{v[0], v[1]}
-			}
-		}
-	})
-	return unitsCoordsCache
-}
-
 func getString(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
@@ -851,6 +1056,51 @@ func getInt(m map[string]any, key string) int {
 	default:
 		return 0
 	}
+	return 0
+}
+
+func (h *Handler) geocodeBusinessUnits(ctx context.Context, units []models.BusinessUnit, force bool) (int, int, []map[string]string) {
+	if h.Geocoder == nil {
+		return 0, len(units), []map[string]string{{"error": "geocoder not configured"}}
+	}
+	var okCount int
+	var failedCount int
+	var failures []map[string]string
+
+	for _, unit := range units {
+		if !geocode.ShouldGeocode(unit, force) {
+			continue
+		}
+		query := geocode.BuildGeocodeQuery(h.CountryDefault, unit.Name, unit.Address)
+		if strings.TrimSpace(query) == "" {
+			failedCount++
+			failures = append(failures, map[string]string{
+				"office": unit.Name,
+				"error":  "empty geocode query",
+			})
+			continue
+		}
+		lat, lon, display, confidence, err := h.Geocoder.Geocode(ctx, query)
+		if err != nil {
+			failedCount++
+			failures = append(failures, map[string]string{
+				"office": unit.Name,
+				"error":  err.Error(),
+			})
+			continue
+		}
+		if err := h.Store.UpdateBusinessUnitGeocode(ctx, unit.ID, lat, lon, "nominatim", display, confidence, time.Now().UTC()); err != nil {
+			failedCount++
+			failures = append(failures, map[string]string{
+				"office": unit.Name,
+				"error":  err.Error(),
+			})
+			continue
+		}
+		okCount++
+	}
+
+	return okCount, failedCount, failures
 }
 
 func getFloat(m map[string]any, key string) float64 {

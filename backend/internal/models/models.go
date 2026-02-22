@@ -13,21 +13,27 @@ type Ticket struct {
 }
 
 type Manager struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Office      string    `json:"office"`
-	Role        string    `json:"role"`
-	Skills      []string  `json:"skills"`
-	CurrentLoad int       `json:"current_load"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Office       string    `json:"office"`
+	Role         string    `json:"role"`
+	Skills       []string  `json:"skills"`
+	CurrentLoad  int       `json:"current_load"`
+	BaselineLoad int       `json:"baseline_load"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type BusinessUnit struct {
-	ID   string  `json:"id"`
-	Name string  `json:"name"`
-	City string  `json:"city"`
-	Lat  float64 `json:"lat"`
-	Lon  float64 `json:"lon"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	City               string     `json:"city"`
+	Address            string     `json:"address"`
+	Lat                *float64   `json:"lat"`
+	Lon                *float64   `json:"lon"`
+	GeocodeProvider    *string    `json:"geocode_provider"`
+	GeocodeDisplayName *string    `json:"geocode_display_name"`
+	GeocodeConfidence  *float64   `json:"geocode_confidence"`
+	GeocodedAt         *time.Time `json:"geocoded_at"`
 }
 
 type AIAnalysis struct {

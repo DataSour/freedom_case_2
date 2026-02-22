@@ -2,9 +2,10 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -67,26 +68,45 @@ func (s *Store) InsertTickets(ctx context.Context, tickets []models.Ticket) (int
 	return copyCount, err
 }
 
-func (s *Store) InsertManagers(ctx context.Context, managers []models.Manager) (int64, error) {
-	rows := make([][]any, 0, len(managers))
+func (s *Store) UpsertManagers(ctx context.Context, managers []models.Manager) (int64, error) {
+	batch := &pgx.Batch{}
 	for _, m := range managers {
-		rows = append(rows, []any{m.ID, m.Name, m.Office, m.Role, m.Skills, m.CurrentLoad, m.UpdatedAt})
+		batch.Queue(`
+			INSERT INTO managers (id, name, office, role, skills, baseline_load, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (id)
+			DO UPDATE SET
+				name = EXCLUDED.name,
+				office = EXCLUDED.office,
+				role = EXCLUDED.role,
+				skills = EXCLUDED.skills,
+				baseline_load = EXCLUDED.baseline_load,
+				updated_at = EXCLUDED.updated_at
+		`, m.ID, m.Name, m.Office, m.Role, m.Skills, m.BaselineLoad, m.UpdatedAt)
 	}
-	copyCount, err := s.Pool.CopyFrom(ctx, pgx.Identifier{"managers"}, []string{"id", "name", "office", "role", "skills", "current_load", "updated_at"}, pgx.CopyFromRows(rows))
-	return copyCount, err
+	br := s.Pool.SendBatch(ctx, batch)
+	defer br.Close()
+	var count int64
+	for range managers {
+		if _, err := br.Exec(); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
 }
 
 func (s *Store) InsertBusinessUnits(ctx context.Context, units []models.BusinessUnit) (int64, error) {
 	rows := make([][]any, 0, len(units))
 	for _, u := range units {
-		rows = append(rows, []any{u.ID, u.Name, u.City, u.Lat, u.Lon})
+		rows = append(rows, []any{u.ID, u.Name, u.City, u.Address, u.Lat, u.Lon})
 	}
-	copyCount, err := s.Pool.CopyFrom(ctx, pgx.Identifier{"business_units"}, []string{"id", "name", "city", "lat", "lon"}, pgx.CopyFromRows(rows))
+	copyCount, err := s.Pool.CopyFrom(ctx, pgx.Identifier{"business_units"}, []string{"id", "name", "city", "address", "lat", "lon"}, pgx.CopyFromRows(rows))
 	return copyCount, err
 }
 
 func (s *Store) ListBusinessUnits(ctx context.Context) ([]models.BusinessUnit, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id, name, city, lat, lon FROM business_units`)
+	rows, err := s.Pool.Query(ctx, `SELECT id, name, city, address, lat, lon, geocode_provider, geocode_display_name, geocode_confidence, geocoded_at FROM business_units`)
 	if err != nil {
 		return nil, err
 	}
@@ -95,16 +115,121 @@ func (s *Store) ListBusinessUnits(ctx context.Context) ([]models.BusinessUnit, e
 	var out []models.BusinessUnit
 	for rows.Next() {
 		var u models.BusinessUnit
-		if err := rows.Scan(&u.ID, &u.Name, &u.City, &u.Lat, &u.Lon); err != nil {
+		var lat, lon sql.NullFloat64
+		var provider, display sql.NullString
+		var confidence sql.NullFloat64
+		var geocodedAt sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Name, &u.City, &u.Address, &lat, &lon, &provider, &display, &confidence, &geocodedAt); err != nil {
 			return nil, err
+		}
+		if lat.Valid {
+			u.Lat = &lat.Float64
+		}
+		if lon.Valid {
+			u.Lon = &lon.Float64
+		}
+		if provider.Valid {
+			u.GeocodeProvider = &provider.String
+		}
+		if display.Valid {
+			u.GeocodeDisplayName = &display.String
+		}
+		if confidence.Valid {
+			u.GeocodeConfidence = &confidence.Float64
+		}
+		if geocodedAt.Valid {
+			u.GeocodedAt = &geocodedAt.Time
 		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
 }
 
+func (s *Store) ListBusinessUnitsFiltered(ctx context.Context, geocoded *bool, q string) ([]models.BusinessUnit, error) {
+	query := `SELECT id, name, city, address, lat, lon, geocode_provider, geocode_display_name, geocode_confidence, geocoded_at FROM business_units`
+	var args []any
+	var wheres []string
+	if geocoded != nil {
+		if *geocoded {
+			wheres = append(wheres, "lat IS NOT NULL AND lon IS NOT NULL")
+		} else {
+			wheres = append(wheres, "lat IS NULL OR lon IS NULL")
+		}
+	}
+	if strings.TrimSpace(q) != "" {
+		args = append(args, "%"+strings.ToLower(strings.TrimSpace(q))+"%")
+		wheres = append(wheres, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(address) LIKE $%d OR LOWER(city) LIKE $%d)", len(args), len(args), len(args)))
+	}
+	if len(wheres) > 0 {
+		query += " WHERE " + strings.Join(wheres, " AND ")
+	}
+	query += " ORDER BY name ASC"
+
+	rows, err := s.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []models.BusinessUnit
+	for rows.Next() {
+		var u models.BusinessUnit
+		var lat, lon sql.NullFloat64
+		var provider, display sql.NullString
+		var confidence sql.NullFloat64
+		var geocodedAt sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Name, &u.City, &u.Address, &lat, &lon, &provider, &display, &confidence, &geocodedAt); err != nil {
+			return nil, err
+		}
+		if lat.Valid {
+			u.Lat = &lat.Float64
+		}
+		if lon.Valid {
+			u.Lon = &lon.Float64
+		}
+		if provider.Valid {
+			u.GeocodeProvider = &provider.String
+		}
+		if display.Valid {
+			u.GeocodeDisplayName = &display.String
+		}
+		if confidence.Valid {
+			u.GeocodeConfidence = &confidence.Float64
+		}
+		if geocodedAt.Valid {
+			u.GeocodedAt = &geocodedAt.Time
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateBusinessUnitGeocode(ctx context.Context, unitID string, lat float64, lon float64, provider string, displayName string, confidence float64, geocodedAt time.Time) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE business_units
+		SET lat = $1,
+			lon = $2,
+			geocode_provider = $3,
+			geocode_display_name = $4,
+			geocode_confidence = $5,
+			geocoded_at = $6
+		WHERE id = $7
+	`, lat, lon, provider, displayName, confidence, geocodedAt, unitID)
+	return err
+}
+
 func (s *Store) ListManagers(ctx context.Context, office string, skill string) ([]models.Manager, error) {
-	query := `SELECT id, name, office, role, skills, current_load, COALESCE(updated_at, NOW()) FROM managers`
+	query := `SELECT m.id, m.name, m.office, m.role, m.skills, COALESCE(m.baseline_load, 0),
+		COALESCE(a.cnt, 0) AS current_load,
+		COALESCE(m.updated_at, NOW())
+		FROM managers m
+		LEFT JOIN (
+			SELECT manager_id, COUNT(*) AS cnt
+			FROM assignments
+			WHERE manager_id IS NOT NULL
+				AND status IN ('ASSIGNED', 'IN_PROGRESS')
+			GROUP BY manager_id
+		) a ON a.manager_id = m.id`
 	var args []any
 	var wheres []string
 	if office != "" {
@@ -129,7 +254,7 @@ func (s *Store) ListManagers(ctx context.Context, office string, skill string) (
 	var out []models.Manager
 	for rows.Next() {
 		var m models.Manager
-		if err := rows.Scan(&m.ID, &m.Name, &m.Office, &m.Role, &m.Skills, &m.CurrentLoad, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Office, &m.Role, &m.Skills, &m.BaselineLoad, &m.CurrentLoad, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if m.UpdatedAt.IsZero() {
@@ -141,7 +266,19 @@ func (s *Store) ListManagers(ctx context.Context, office string, skill string) (
 }
 
 func (s *Store) ListManagersByOffice(ctx context.Context, office string) ([]models.Manager, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id, name, office, role, skills, current_load, COALESCE(updated_at, NOW()) FROM managers WHERE office = $1 ORDER BY current_load ASC, id ASC`, office)
+	rows, err := s.Pool.Query(ctx, `SELECT m.id, m.name, m.office, m.role, m.skills, COALESCE(m.baseline_load, 0),
+		COALESCE(a.cnt, 0) AS current_load,
+		COALESCE(m.updated_at, NOW())
+		FROM managers m
+		LEFT JOIN (
+			SELECT manager_id, COUNT(*) AS cnt
+			FROM assignments
+			WHERE manager_id IS NOT NULL
+				AND status IN ('ASSIGNED', 'IN_PROGRESS')
+			GROUP BY manager_id
+		) a ON a.manager_id = m.id
+		WHERE m.office = $1
+		ORDER BY current_load ASC, m.id ASC`, office)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +287,7 @@ func (s *Store) ListManagersByOffice(ctx context.Context, office string) ([]mode
 	var out []models.Manager
 	for rows.Next() {
 		var m models.Manager
-		if err := rows.Scan(&m.ID, &m.Name, &m.Office, &m.Role, &m.Skills, &m.CurrentLoad, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Office, &m.Role, &m.Skills, &m.BaselineLoad, &m.CurrentLoad, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -159,8 +296,11 @@ func (s *Store) ListManagersByOffice(ctx context.Context, office string) ([]mode
 }
 
 func (s *Store) ListTickets(ctx context.Context, status, office, language, q string, limit, offset int) ([]map[string]any, error) {
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 {
 		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
 	}
 	if offset < 0 {
 		offset = 0
@@ -206,41 +346,41 @@ func (s *Store) ListTickets(ctx context.Context, status, office, language, q str
 	var out []map[string]any
 	for rows.Next() {
 		var (
-			id        string
-			createdAt time.Time
-			segment   string
-			city      string
-			address   string
-			message   string
-			st        *string
-			officeVal *string
-			managerID *string
+			id         string
+			createdAt  time.Time
+			segment    string
+			city       string
+			address    string
+			message    string
+			st         *string
+			officeVal  *string
+			managerID  *string
 			reasonCode *string
 			reasonText *string
-			lang      *string
-			priority  *int
-			aiType    *string
-			sentiment *string
+			lang       *string
+			priority   *int
+			aiType     *string
+			sentiment  *string
 		)
 		if err := rows.Scan(&id, &createdAt, &segment, &city, &address, &message, &st, &officeVal, &managerID, &reasonCode, &reasonText, &lang, &priority, &aiType, &sentiment); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
-			"id":         id,
-			"created_at": createdAt,
-			"segment":    segment,
-			"city":       city,
-			"address":    address,
-			"message":    message,
-			"status":     st,
-			"office":     officeVal,
-			"manager_id": managerID,
+			"id":          id,
+			"created_at":  createdAt,
+			"segment":     segment,
+			"city":        city,
+			"address":     address,
+			"message":     message,
+			"status":      st,
+			"office":      officeVal,
+			"manager_id":  managerID,
 			"reason_code": reasonCode,
 			"reason_text": reasonText,
-			"language":   lang,
-			"priority":   priority,
-			"type":       aiType,
-			"sentiment":  sentiment,
+			"language":    lang,
+			"priority":    priority,
+			"type":        aiType,
+			"sentiment":   sentiment,
 		}
 		out = append(out, item)
 	}
@@ -260,27 +400,27 @@ func (s *Store) GetTicketDetails(ctx context.Context, ticketID string) (map[stri
 	`, ticketID)
 
 	var (
-		t models.Ticket
-		aID *string
-		managerID *string
-		aOffice *string
-		aStatus *string
-		reasonCode *string
-		reasonText *string
-		reasoning []byte
-		assignedAt *time.Time
-		aiID *string
-		aiType *string
-		sentiment *string
-		priority *int
-		language *string
-		summary *string
-		rec *string
-		lat *float64
-		lon *float64
-		conf *float64
+		t            models.Ticket
+		aID          *string
+		managerID    *string
+		aOffice      *string
+		aStatus      *string
+		reasonCode   *string
+		reasonText   *string
+		reasoning    []byte
+		assignedAt   *time.Time
+		aiID         *string
+		aiType       *string
+		sentiment    *string
+		priority     *int
+		language     *string
+		summary      *string
+		rec          *string
+		lat          *float64
+		lon          *float64
+		conf         *float64
 		modelVersion *string
-		aiCreated *time.Time
+		aiCreated    *time.Time
 	)
 
 	if err := row.Scan(
@@ -422,6 +562,17 @@ func (s *Store) UpdateManagerLoad(ctx context.Context, tx pgx.Tx, managerID stri
 	return err
 }
 
+func (s *Store) UpdateAssignmentStatus(ctx context.Context, ticketID string, status string) (string, error) {
+	var managerID string
+	err := s.Pool.QueryRow(ctx, `
+		UPDATE assignments
+		SET status = $2
+		WHERE ticket_id = $1
+		RETURNING COALESCE(manager_id, '')
+	`, ticketID, status).Scan(&managerID)
+	return managerID, err
+}
+
 func (s *Store) CreateRun(ctx context.Context, status string) (string, error) {
 	var id string
 	err := s.Pool.QueryRow(ctx, `INSERT INTO runs (status, started_at) VALUES ($1, NOW()) RETURNING id`, status).Scan(&id)
@@ -436,21 +587,21 @@ func (s *Store) FinishRun(ctx context.Context, runID string, status string, summ
 func (s *Store) GetLatestRun(ctx context.Context) (map[string]any, error) {
 	row := s.Pool.QueryRow(ctx, `SELECT id, started_at, finished_at, status, summary FROM runs ORDER BY started_at DESC LIMIT 1`)
 	var (
-		id string
-		started time.Time
+		id       string
+		started  time.Time
 		finished *time.Time
-		status string
-		summary []byte
+		status   string
+		summary  []byte
 	)
 	if err := row.Scan(&id, &started, &finished, &status, &summary); err != nil {
 		return nil, err
 	}
 	return map[string]any{
-		"id": id,
-		"started_at": started,
+		"id":          id,
+		"started_at":  started,
 		"finished_at": finished,
-		"status": status,
-		"summary": summary,
+		"status":      status,
+		"summary":     summary,
 	}, nil
 }
 
@@ -498,4 +649,152 @@ func (s *Store) Reassign(ctx context.Context, ticketID string, managerID string,
 		`, managerID, office, status, reasonCode, reasonText, reasoning, ticketID)
 		return err
 	})
+}
+
+func (s *Store) GetAssistantContext(ctx context.Context) (map[string]any, error) {
+	out := map[string]any{}
+	var errs []string
+
+	// total tickets
+	var totalTickets int
+	if err := s.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM tickets`).Scan(&totalTickets); err != nil {
+		errs = append(errs, "tickets_count_failed")
+	} else {
+		out["total_tickets"] = totalTickets
+	}
+
+	// total managers
+	var totalManagers int
+	if err := s.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM managers`).Scan(&totalManagers); err != nil {
+		errs = append(errs, "managers_count_failed")
+	} else {
+		out["total_managers"] = totalManagers
+	}
+
+	// total business units
+	var totalUnits int
+	if err := s.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM business_units`).Scan(&totalUnits); err != nil {
+		errs = append(errs, "business_units_count_failed")
+	} else {
+		out["total_business_units"] = totalUnits
+		out["total_offices"] = totalUnits
+	}
+
+	// assignment counts
+	assignCounts := map[string]int{}
+	rows, err := s.Pool.Query(ctx, `SELECT status, COUNT(*) FROM assignments GROUP BY status`)
+	if err != nil {
+		errs = append(errs, "assignment_counts_failed")
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var status string
+			var count int
+			if scanErr := rows.Scan(&status, &count); scanErr == nil {
+				assignCounts[status] = count
+			}
+		}
+		out["assignment_counts"] = assignCounts
+	}
+
+	// top unassigned reasons
+	var unassignedReasons []map[string]any
+	rows, err = s.Pool.Query(ctx, `
+		SELECT COALESCE(reason_code, 'UNKNOWN'), COUNT(*)
+		FROM assignments
+		WHERE status = 'UNASSIGNED'
+		GROUP BY reason_code
+		ORDER BY COUNT(*) DESC
+		LIMIT 5
+	`)
+	if err != nil {
+		errs = append(errs, "unassigned_reasons_failed")
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var reason string
+			var count int
+			if scanErr := rows.Scan(&reason, &count); scanErr == nil {
+				unassignedReasons = append(unassignedReasons, map[string]any{
+					"reason_code": reason,
+					"count":       count,
+				})
+			}
+		}
+		out["top_unassigned_reasons"] = unassignedReasons
+	}
+
+	// top managers by load
+	var topManagers []map[string]any
+	rows, err = s.Pool.Query(ctx, `
+		SELECT id, name, office, current_load
+		FROM managers
+		ORDER BY current_load DESC, id ASC
+		LIMIT 5
+	`)
+	if err != nil {
+		errs = append(errs, "top_managers_failed")
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var id, name, office string
+			var load int
+			if scanErr := rows.Scan(&id, &name, &office, &load); scanErr == nil {
+				topManagers = append(topManagers, map[string]any{
+					"id":           id,
+					"name":         name,
+					"office":       office,
+					"current_load": load,
+				})
+			}
+		}
+		out["top_managers_by_load"] = topManagers
+	}
+
+	// tickets by office
+	var officeDist []map[string]any
+	rows, err = s.Pool.Query(ctx, `
+		SELECT COALESCE(office, 'UNASSIGNED') AS office, COUNT(*)
+		FROM assignments
+		GROUP BY office
+		ORDER BY COUNT(*) DESC
+		LIMIT 10
+	`)
+	if err != nil {
+		errs = append(errs, "office_distribution_failed")
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var office string
+			var count int
+			if scanErr := rows.Scan(&office, &count); scanErr == nil {
+				officeDist = append(officeDist, map[string]any{
+					"office": office,
+					"count":  count,
+				})
+			}
+		}
+		out["office_distribution"] = officeDist
+	}
+
+	// latest run summary
+	if latest, err := s.GetLatestRun(ctx); err == nil {
+		var summary any
+		if b, ok := latest["summary"].([]byte); ok && len(b) > 0 {
+			_ = json.Unmarshal(b, &summary)
+		}
+		out["latest_run"] = map[string]any{
+			"id":          latest["id"],
+			"status":      latest["status"],
+			"started_at":  latest["started_at"],
+			"finished_at": latest["finished_at"],
+			"summary":     summary,
+		}
+	}
+
+	if len(errs) > 0 {
+		out["context_errors"] = errs
+	}
+
+	return out, nil
 }

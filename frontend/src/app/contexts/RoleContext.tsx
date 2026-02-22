@@ -11,7 +11,7 @@ interface RoleContextType {
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: React.ReactNode }) {
-  const [role, setRoleState] = useState<Role>('operator');
+  const [role, setRoleState] = useState<Role>('admin');
 
   const toggleRole = () => {
     setRoleState(prev => prev === 'operator' ? 'admin' : 'operator');

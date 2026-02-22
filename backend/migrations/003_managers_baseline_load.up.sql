@@ -1,0 +1,2 @@
+ALTER TABLE managers
+  ADD COLUMN IF NOT EXISTS baseline_load INT NOT NULL DEFAULT 0;

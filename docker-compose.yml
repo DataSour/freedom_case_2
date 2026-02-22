@@ -18,6 +18,8 @@ services:
     build: ./backend
     volumes:
       - ./ml/units_coords_cache.json:/app/units_coords_cache.json:ro
+    env_file:
+      - ./backend/.env
     depends_on:
       db:
         condition: service_healthy
@@ -33,6 +35,7 @@ services:
       CORS_ALLOWED_ORIGINS: "*"
       LOG_LEVEL: "info"
       UNITS_COORDS_CACHE_PATH: "/app/units_coords_cache.json"
+      ASSISTANT_MAX_TOKENS: "2048"
     ports:
       - "8080:8080"
   ml:

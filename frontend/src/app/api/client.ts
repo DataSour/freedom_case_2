@@ -1,4 +1,4 @@
-import type { ImportSummary, RunSummary, TicketDetailsResponse, TicketListItem, Manager } from './types';
+import type { ImportSummary, RunSummary, TicketDetailsResponse, TicketListItem, Manager, AssistantChatRequest, AssistantChatResponse, AnalyticsQueryRequest, AnalyticsQueryResponse, BusinessUnit } from './types';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080';
 const ADMIN_KEY = (import.meta as any).env?.VITE_ADMIN_KEY || '';
@@ -67,12 +67,34 @@ export const api = {
     return request(`/api/managers${suffix}`);
   },
 
+  async listBusinessUnits(params: Record<string, string> = {}): Promise<{ items: BusinessUnit[] }> {
+    const qs = new URLSearchParams(params).toString();
+    const suffix = qs ? `?${qs}` : '';
+    return request(`/api/business-units${suffix}`);
+  },
+
   async latestRun(): Promise<any> {
     return request('/api/runs/latest');
   },
 
   async reassignTicket(id: string, payload: { manager_id: string; reason: string }): Promise<{ status: string; override: boolean }> {
     return request(`/api/tickets/${id}/reassign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }, true);
+  },
+
+  async assistantChat(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
+    return request(`/api/assistant/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }, true);
+  },
+
+  async analyticsQuery(payload: AnalyticsQueryRequest): Promise<AnalyticsQueryResponse> {
+    return request(`/api/analytics/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

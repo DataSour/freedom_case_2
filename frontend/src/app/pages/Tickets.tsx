@@ -9,9 +9,11 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { api } from '../api/client';
 import type { Manager, TicketListItem } from '../api/types';
+import { useI18n } from '../contexts/I18nContext';
 
 export function Tickets() {
   const navigate = useNavigate();
+  const { t, lang } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [officeFilter, setOfficeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -128,9 +130,9 @@ export function Tickets() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1>Tickets</h1>
+        <h1>{t('Tickets')}</h1>
         <p className="text-[rgb(var(--color-muted-foreground))] mt-1">
-          Manage and track all customer support tickets
+          {t('Manage and track all customer support tickets')}
         </p>
       </div>
 
@@ -140,81 +142,81 @@ export function Tickets() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Filter className="w-5 h-5 text-[rgb(var(--color-muted-foreground))]" />
-              <h3 className="font-medium">Filters</h3>
+              <h3 className="font-medium">{t('Filters')}</h3>
               {hasActiveFilters && (
-                <Badge variant="primary">{filteredTickets.length} results</Badge>
+                <Badge variant="primary">{filteredTickets.length} {t('results')}</Badge>
               )}
             </div>
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={resetFilters}>
                 <X className="w-4 h-4" />
-                Clear Filters
+                {t('Clear Filters')}
               </Button>
             )}
           </div>
 
           <div className="grid grid-cols-6 gap-4">
             <Input
-              placeholder="Search by ticket ID..."
+              placeholder={t('Search by ticket ID...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               icon={<Search className="w-4 h-4" />}
             />
             <Dropdown
               options={[
-                { value: '', label: 'All Offices' },
+                { value: '', label: t('All Offices') },
                 { value: 'Astana', label: 'Astana' },
                 { value: 'Almaty', label: 'Almaty' }
               ]}
               value={officeFilter}
               onChange={setOfficeFilter}
-              placeholder="Office"
+              placeholder={t('Office')}
             />
             <Dropdown
               options={[
-                { value: '', label: 'All Status' },
-                { value: 'ASSIGNED', label: 'Assigned' },
-                { value: 'UNASSIGNED', label: 'Unassigned' },
-                { value: 'ERROR', label: 'Error' }
+                { value: '', label: t('All Status') },
+                { value: 'ASSIGNED', label: t('Assigned') },
+                { value: 'UNASSIGNED', label: t('Unassigned') },
+                { value: 'ERROR', label: t('Error') }
               ]}
               value={statusFilter}
               onChange={setStatusFilter}
-              placeholder="Status"
+              placeholder={t('Status')}
             />
             <Dropdown
               options={[
-                { value: '', label: 'All Types' },
-                { value: 'Complaint', label: 'Complaint' },
-                { value: 'Consultation', label: 'Consultation' },
-                { value: 'Change of data', label: 'Change of data' },
-                { value: 'Fraud', label: 'Fraud' },
-                { value: 'Technical issue', label: 'Technical issue' }
+                { value: '', label: t('All Types') },
+                { value: 'Complaint', label: t('Complaint') },
+                { value: 'Consultation', label: t('Consultation') },
+                { value: 'Change of data', label: t('Change of data') },
+                { value: 'Fraud', label: t('Fraud') },
+                { value: 'Technical issue', label: t('Technical issue') }
               ]}
               value={typeFilter}
               onChange={setTypeFilter}
-              placeholder="Type"
+              placeholder={t('Type')}
             />
             <Dropdown
               options={[
-                { value: '', label: 'All Sentiment' },
-                { value: 'Positive', label: 'Positive' },
-                { value: 'Neutral', label: 'Neutral' },
-                { value: 'Negative', label: 'Negative' }
+                { value: '', label: t('All Sentiment') },
+                { value: 'Positive', label: t('Positive') },
+                { value: 'Neutral', label: t('Neutral') },
+                { value: 'Negative', label: t('Negative') }
               ]}
               value={sentimentFilter}
               onChange={setSentimentFilter}
-              placeholder="Sentiment"
+              placeholder={t('Sentiment')}
             />
             <Dropdown
               options={[
-                { value: '', label: 'All Languages' },
-                { value: 'RU', label: 'Russian' },
-                { value: 'KZ', label: 'Kazakh' },
-                { value: 'ENG', label: 'English' }
+                { value: '', label: t('All Languages') },
+                { value: 'RU', label: t('Russian') },
+                { value: 'KZ', label: t('Kazakh') },
+                { value: 'ENG', label: t('English') }
               ]}
               value={languageFilter}
               onChange={setLanguageFilter}
-              placeholder="Language"
+              placeholder={t('Language')}
             />
           </div>
 
@@ -222,7 +224,7 @@ export function Tickets() {
             <Toggle
               checked={unassignedOnly}
               onChange={setUnassignedOnly}
-              label="Show unassigned only"
+              label={t('Show unassigned only')}
             />
           </div>
         </div>
@@ -235,14 +237,14 @@ export function Tickets() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[rgb(var(--color-muted))] flex items-center justify-center">
               <Clock className="w-8 h-8 text-[rgb(var(--color-muted-foreground))]" />
             </div>
-            <h3 className="font-medium mb-2">Loading tickets...</h3>
+            <h3 className="font-medium mb-2">{t('Loading tickets...')}</h3>
           </div>
         ) : error ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[rgb(var(--color-muted))] flex items-center justify-center">
               <AlertTriangle className="w-8 h-8 text-[rgb(var(--color-error))]" />
             </div>
-            <h3 className="font-medium mb-2">Failed to load tickets</h3>
+            <h3 className="font-medium mb-2">{t('Failed to load tickets')}</h3>
             <p className="text-sm text-[rgb(var(--color-muted-foreground))]">{error}</p>
           </div>
         ) : filteredTickets.length === 0 ? (
@@ -250,9 +252,9 @@ export function Tickets() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[rgb(var(--color-muted))] flex items-center justify-center">
               <Search className="w-8 h-8 text-[rgb(var(--color-muted-foreground))]" />
             </div>
-            <h3 className="font-medium mb-2">No tickets found</h3>
+            <h3 className="font-medium mb-2">{t('No tickets found')}</h3>
             <p className="text-sm text-[rgb(var(--color-muted-foreground))]">
-              Try adjusting your filters or search query
+              {t('Try adjusting your filters or search query')}
             </p>
           </div>
         ) : (
@@ -260,23 +262,23 @@ export function Tickets() {
             <table className="w-full">
               <thead className="border-b border-[rgb(var(--color-border))] bg-[rgb(var(--color-muted))] sticky top-0">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Ticket ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Segment</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">City</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Language</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Sentiment</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Priority</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Assigned Manager</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Office</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Ticket ID')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Segment')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('City')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Language')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Type')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Sentiment')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Priority')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Assigned Manager')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Office')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Status')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Created')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--color-border))]">
                 {filteredTickets.map((ticket) => {
                   const statusLabel = normalizeStatus(ticket.status);
-                  const sentimentLabel = normalizeSentiment(ticket.sentiment) || 'Neutral';
+                  const sentimentLabel = normalizeSentiment(ticket.sentiment) || t('Neutral');
                   return (
                     <tr 
                       key={ticket.id} 
@@ -330,13 +332,13 @@ export function Tickets() {
                         <Badge variant={getStatusVariant(statusLabel)}>
                           <div className="flex items-center gap-1">
                             {getStatusIcon(statusLabel)}
-                            {statusLabel}
+                            {t(statusLabel)}
                           </div>
                         </Badge>
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-sm text-[rgb(var(--color-muted-foreground))]">
-                          {new Date(ticket.created_at).toLocaleString('en-US', {
+                          {new Date(ticket.created_at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
                             month: 'short',
                             day: 'numeric',
                             hour: '2-digit',
@@ -357,12 +359,12 @@ export function Tickets() {
       {filteredTickets.length > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-[rgb(var(--color-muted-foreground))]">
-            Showing <span className="font-medium">{filteredTickets.length}</span> of{' '}
-            <span className="font-medium">{tickets.length}</span> tickets
+            {t('Showing')} <span className="font-medium">{filteredTickets.length}</span> {t('of')}{' '}
+            <span className="font-medium">{tickets.length}</span> {t('tickets')}
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>Previous</Button>
-            <Button variant="outline" size="sm" disabled>Next</Button>
+            <Button variant="outline" size="sm" disabled>{t('Previous')}</Button>
+            <Button variant="outline" size="sm" disabled>{t('Next')}</Button>
           </div>
         </div>
       )}

@@ -6,8 +6,10 @@ import { Dropdown } from '../components/ui/Dropdown';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { api } from '../api/client';
 import type { Manager, TicketListItem } from '../api/types';
+import { useI18n } from '../contexts/I18nContext';
 
 export function Analytics() {
+  const { t, lang } = useI18n();
   const [dateRange, setDateRange] = useState('7d');
   const [officeFilter, setOfficeFilter] = useState('');
   const [tickets, setTickets] = useState<TicketListItem[]>([]);
@@ -71,7 +73,7 @@ export function Analytics() {
       const dayTickets = filteredTickets.filter(t => t.created_at?.slice(0, 10) === key);
       const assigned = dayTickets.filter(t => t.status === 'ASSIGNED').length;
       const rate = dayTickets.length ? Math.round((assigned / dayTickets.length) * 100) : 0;
-      out.push({ date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), rate });
+      out.push({ date: d.toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { month: 'short', day: 'numeric' }), rate });
     }
     return out;
   }, [filteredTickets, dateRange]);
@@ -99,7 +101,7 @@ export function Analytics() {
       const key = d.toISOString().slice(0, 10);
       const dayTickets = filteredTickets.filter(t => t.created_at?.slice(0, 10) === key && t.status === 'ASSIGNED');
       const avgLoad = Math.round((dayTickets.length / managerCount) * 100);
-      out.push({ date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), avgLoad });
+      out.push({ date: d.toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { month: 'short', day: 'numeric' }), avgLoad });
     }
     return out;
   }, [filteredTickets, managers, dateRange]);
@@ -111,34 +113,64 @@ export function Analytics() {
     const std = Math.sqrt(variance);
     const loadBalance = avg ? Math.max(0, Math.round(100 - (std / avg) * 100)) : 0;
 
-    const requiredSkills = new Set<string>();
-    filteredTickets.forEach(t => {
-      if (t.language) requiredSkills.add(t.language);
-      if (t.segment?.toUpperCase() == 'VIP') requiredSkills.add('VIP');
-    });
-
-    const utilized = managers.filter(m => m.skills.some(s => requiredSkills.has(s))).length;
-    const skillUtil = managers.length ? Math.round((utilized / managers.length) * 100) : 0;
-
     const astana = filteredTickets.filter(t => t.office === 'Astana').length;
     const almaty = filteredTickets.filter(t => t.office === 'Almaty').length;
 
     return [
       { metric: 'Load Balance Score', value: `${loadBalance}%`, description: 'Based on current manager workload' },
-      { metric: 'Skill Utilization', value: `${skillUtil}%`, description: 'Managers covering active skill needs' },
       { metric: 'Office Distribution', value: `${astana}/${almaty}`, description: 'Astana vs Almaty split ratio' },
       { metric: 'Avg Response Time', value: '—', description: 'Not tracked in current dataset' }
     ];
   }, [managers, filteredTickets]);
+
+  const handleExportReport = () => {
+    if (filteredTickets.length === 0) return;
+    const headers = [
+      'ticket_id',
+      'created_at',
+      'segment',
+      'city',
+      'office',
+      'status',
+      'type',
+      'language',
+      'priority',
+      'manager_id',
+    ];
+    const rows = filteredTickets.map(t => ([
+      t.id,
+      t.created_at,
+      t.segment,
+      t.city,
+      t.office || '',
+      t.status || '',
+      t.type || '',
+      t.language || '',
+      t.priority ?? '',
+      t.manager_id || '',
+    ]));
+    const csv = [headers, ...rows]
+      .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    link.href = url;
+    link.download = `fire-analytics-${stamp}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1>Analytics</h1>
+          <h1>{t('Analytics')}</h1>
           <p className="text-[rgb(var(--color-muted-foreground))] mt-1">
-            Performance metrics and fairness insights
+            {t('Performance metrics and fairness insights')}
           </p>
         </div>
         <div className="flex gap-3">
@@ -150,25 +182,25 @@ export function Analytics() {
             ]}
             value={dateRange}
             onChange={setDateRange}
-            placeholder="Date range"
+            placeholder={t('Date range')}
           />
           <Dropdown
             options={[
-              { value: '', label: 'All Offices' },
+              { value: '', label: t('All Offices') },
               { value: 'Astana', label: 'Astana' },
               { value: 'Almaty', label: 'Almaty' }
             ]}
             value={officeFilter}
             onChange={setOfficeFilter}
-            placeholder="Office"
+            placeholder={t('Office')}
           />
           <Button variant="outline">
             <Calendar className="w-4 h-4" />
-            Custom Range
+            {t('Custom Range')}
           </Button>
-          <Button variant="primary">
+          <Button variant="primary" onClick={handleExportReport} disabled={filteredTickets.length === 0}>
             <Download className="w-4 h-4" />
-            Export Report
+            {t('Export Report')}
           </Button>
         </div>
       </div>
@@ -178,9 +210,9 @@ export function Analytics() {
         {fairnessMetrics.map((metric) => (
           <Card key={metric.metric}>
             <div>
-              <p className="text-sm text-[rgb(var(--color-muted-foreground))] mb-1">{metric.metric}</p>
+              <p className="text-sm text-[rgb(var(--color-muted-foreground))] mb-1">{t(metric.metric)}</p>
               <h3 className="text-2xl font-bold text-[rgb(var(--color-foreground))] mb-2">{metric.value}</h3>
-              <p className="text-xs text-[rgb(var(--color-muted-foreground))]">{metric.description}</p>
+              <p className="text-xs text-[rgb(var(--color-muted-foreground))]">{t(metric.description)}</p>
             </div>
           </Card>
         ))}
@@ -189,7 +221,7 @@ export function Analytics() {
       {/* Charts Row 1 */}
       <div className="grid grid-cols-2 gap-6">
         <Card>
-          <CardHeader title="Assignments by Office" description="Distribution across locations" />
+          <CardHeader title={t('Assignments by Office')} description={t('Distribution across locations')} />
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={assignmentsByOffice}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-border))" />
@@ -202,14 +234,14 @@ export function Analytics() {
                   borderRadius: '8px'
                 }}
               />
-              <Bar dataKey="assigned" fill="rgb(var(--color-success))" name="Assigned" radius={[8, 8, 0, 0]} />
-              <Bar dataKey="unassigned" fill="rgb(var(--color-warning))" name="Unassigned" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="assigned" fill="rgb(var(--color-success))" name={t('Assigned')} radius={[8, 8, 0, 0]} />
+              <Bar dataKey="unassigned" fill="rgb(var(--color-warning))" name={t('Unassigned')} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         <Card>
-          <CardHeader title="Assignment Success Rate" description="Daily success percentage" />
+          <CardHeader title={t('Assignment Success Rate')} description={t('Daily success percentage')} />
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={assignmentSuccessRate}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-border))" />

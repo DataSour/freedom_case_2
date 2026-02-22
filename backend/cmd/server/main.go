@@ -14,6 +14,7 @@ import (
 	"github.com/freedom_case_2/backend/internal/ai"
 	"github.com/freedom_case_2/backend/internal/config"
 	"github.com/freedom_case_2/backend/internal/db"
+	"github.com/freedom_case_2/backend/internal/geocode"
 	httpapi "github.com/freedom_case_2/backend/internal/http"
 )
 
@@ -42,7 +43,21 @@ func main() {
 		adapter = ai.HTTPAdapter{BaseURL: cfg.AIURL}
 	}
 
-	router := httpapi.Router(cfg, store, adapter, logger)
+	assistant := ai.OpenAICompatAssistant{
+		BaseURL:   cfg.AssistantBaseURL,
+		Model:     cfg.AssistantModel,
+		APIKey:    cfg.AssistantAPIKey,
+		MaxTokens: cfg.AssistantMaxTokens,
+	}
+	var geocoder geocode.Geocoder
+	if cfg.GeocoderProvider == "nominatim" {
+		geocoder = &geocode.NominatimGeocoder{
+			UserAgent:   cfg.GeocoderUserAgent,
+			MinInterval: time.Duration(cfg.GeocoderMinIntervalMS) * time.Millisecond,
+		}
+	}
+
+	router := httpapi.Router(cfg, store, adapter, assistant, geocoder, logger)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

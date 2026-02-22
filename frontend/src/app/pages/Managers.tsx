@@ -7,8 +7,10 @@ import { ProgressBar } from '../components/ui/ProgressBar';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api } from '../api/client';
 import type { Manager } from '../api/types';
+import { useI18n } from '../contexts/I18nContext';
 
 export function Managers() {
+  const { t, lang } = useI18n();
   const [officeFilter, setOfficeFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [skillFilter, setSkillFilter] = useState('');
@@ -42,15 +44,20 @@ export function Managers() {
   }, [managers, officeFilter, roleFilter, skillFilter]);
 
   const withCapacity = useMemo(() => {
-    return managers.map(m => ({
-      ...m,
-      capacity: Math.max(20, m.current_load + 5),
-    }));
+    return managers.map(m => {
+      const baseline = m.baseline_load || 0;
+      const displayLoad = baseline + (m.current_load || 0);
+      return {
+        ...m,
+        displayLoad,
+        capacity: Math.max(20, displayLoad + 5),
+      };
+    });
   }, [managers]);
 
   const loadDistribution = withCapacity.map(m => ({
     name: m.name.split(' ')[0],
-    load: m.current_load,
+    load: m.displayLoad,
     capacity: m.capacity,
   }));
 
@@ -58,9 +65,9 @@ export function Managers() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1>Managers</h1>
+        <h1>{t('Managers')}</h1>
         <p className="text-[rgb(var(--color-muted-foreground))] mt-1">
-          View and manage support team members
+          {t('View and manage support team members')}
         </p>
       </div>
 
@@ -69,18 +76,18 @@ export function Managers() {
         <div className="flex items-center gap-4">
           <Dropdown
             options={[
-              { value: '', label: 'All Offices' },
+              { value: '', label: t('All Offices') },
               { value: 'Astana', label: 'Astana' },
               { value: 'Almaty', label: 'Almaty' }
             ]}
             value={officeFilter}
             onChange={setOfficeFilter}
-            placeholder="Filter by office"
+            placeholder={t('Filter by office')}
             className="flex-1"
           />
           <Dropdown
             options={[
-              { value: '', label: 'All Roles' },
+              { value: '', label: t('All Roles') },
               { value: 'Lead', label: 'Lead' },
               { value: 'Senior', label: 'Senior' },
               { value: 'Junior', label: 'Junior' },
@@ -88,20 +95,20 @@ export function Managers() {
             ]}
             value={roleFilter}
             onChange={setRoleFilter}
-            placeholder="Filter by role"
+            placeholder={t('Filter by role')}
             className="flex-1"
           />
           <Dropdown
             options={[
-              { value: '', label: 'All Skills' },
+              { value: '', label: t('All Skills') },
               { value: 'VIP', label: 'VIP' },
-              { value: 'KZ', label: 'Kazakh' },
-              { value: 'RU', label: 'Russian' },
-              { value: 'ENG', label: 'English' }
+              { value: 'KZ', label: t('Kazakh') },
+              { value: 'RU', label: t('Russian') },
+              { value: 'ENG', label: t('English') }
             ]}
             value={skillFilter}
             onChange={setSkillFilter}
-            placeholder="Filter by skill"
+            placeholder={t('Filter by skill')}
             className="flex-1"
           />
         </div>
@@ -111,15 +118,17 @@ export function Managers() {
       <div className="grid grid-cols-3 gap-6">
         {loading ? (
           <Card>
-            <div className="p-6 text-center">Loading managers...</div>
+            <div className="p-6 text-center">{t('Loading managers...')}</div>
           </Card>
         ) : filteredManagers.length === 0 ? (
           <Card>
-            <div className="p-6 text-center">No managers found</div>
+            <div className="p-6 text-center">{t('No managers found')}</div>
           </Card>
         ) : (
           filteredManagers.map((manager) => {
-            const capacity = Math.max(20, manager.current_load + 5);
+            const baseline = manager.baseline_load || 0;
+            const displayLoad = baseline + (manager.current_load || 0);
+            const capacity = Math.max(20, displayLoad + 5);
             return (
               <Card key={manager.id}>
                 <div className="flex items-start gap-4">
@@ -132,7 +141,7 @@ export function Managers() {
                     </h3>
                     <div className="flex items-center gap-2 mb-3">
                       <Badge variant="secondary" size="sm">{manager.role}</Badge>
-                      <Badge variant="success" size="sm">active</Badge>
+                      <Badge variant="success" size="sm">{t('active')}</Badge>
                     </div>
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center gap-2 text-sm text-[rgb(var(--color-muted-foreground))]">
@@ -141,7 +150,7 @@ export function Managers() {
                       </div>
                       <div className="flex items-center gap-2 text-sm text-[rgb(var(--color-muted-foreground))]">
                         <Clock className="w-4 h-4" />
-                        Updated {new Date(manager.updated_at).toLocaleString('en-US', {
+                        {t('Updated')} {new Date(manager.updated_at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
@@ -158,15 +167,15 @@ export function Managers() {
                     </div>
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs text-[rgb(var(--color-muted-foreground))]">Current Load</span>
+                        <span className="text-xs text-[rgb(var(--color-muted-foreground))]">{t('Current Load')}</span>
                         <span className="text-sm font-medium">
-                          {manager.current_load}/{capacity}
+                          {displayLoad}/{capacity}
                         </span>
                       </div>
                       <ProgressBar
-                        value={manager.current_load}
+                        value={displayLoad}
                         max={capacity}
-                        variant={manager.current_load / capacity > 0.8 ? 'warning' : 'success'}
+                        variant={displayLoad / capacity > 0.8 ? 'warning' : 'success'}
                         size="md"
                       />
                     </div>
@@ -181,8 +190,8 @@ export function Managers() {
       {/* Load Distribution Chart */}
       <Card>
         <CardHeader 
-          title="Team Load Distribution" 
-          description="Current workload across all managers" 
+          title={t('Team Load Distribution')} 
+          description={t('Current workload across all managers')} 
         />
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={loadDistribution}>
@@ -196,8 +205,8 @@ export function Managers() {
                 borderRadius: '8px'
               }}
             />
-            <Bar dataKey="load" fill="rgb(var(--color-primary))" name="Current Load" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="capacity" fill="rgb(var(--color-muted))" name="Max Capacity" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="load" fill="rgb(var(--color-primary))" name={t('Current Load')} radius={[8, 8, 0, 0]} />
+            <Bar dataKey="capacity" fill="rgb(var(--color-muted))" name={t('Max Capacity')} radius={[8, 8, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Card>

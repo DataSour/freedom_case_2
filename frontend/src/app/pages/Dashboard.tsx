@@ -7,19 +7,17 @@ import {
   AlertCircle,
   CheckCircle2,
   Upload,
-  Play,
-  Eye,
-  Info
+  Eye
 } from 'lucide-react';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { DocumentationPanel } from '../components/DocumentationPanel';
 import { api } from '../api/client';
 import type { Manager, TicketListItem } from '../api/types';
 import { useToast } from '../components/ui/Toast';
+import { useI18n } from '../contexts/I18nContext';
 
 function KPICard({ title, value, subtitle, trend, icon: Icon, variant = 'default' }: any) {
   const variants = {
@@ -43,19 +41,6 @@ function KPICard({ title, value, subtitle, trend, icon: Icon, variant = 'default
           <Icon className={`w-6 h-6 ${variants[variant]}`} />
         </div>
       </div>
-      {trend && (
-        <div className="flex items-center gap-1 mt-3">
-          {trend > 0 ? (
-            <TrendingUp className="w-4 h-4 text-[rgb(var(--color-success))]" />
-          ) : (
-            <TrendingDown className="w-4 h-4 text-[rgb(var(--color-error))]" />
-          )}
-          <span className={`text-sm font-medium ${trend > 0 ? 'text-[rgb(var(--color-success))]' : 'text-[rgb(var(--color-error))]'}`}>
-            {Math.abs(trend)}%
-          </span>
-          <span className="text-sm text-[rgb(var(--color-muted-foreground))]">vs last week</span>
-        </div>
-      )}
     </Card>
   );
 }
@@ -63,11 +48,10 @@ function KPICard({ title, value, subtitle, trend, icon: Icon, variant = 'default
 export function Dashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [showDocs, setShowDocs] = useState(false);
+  const { t } = useI18n();
   const [tickets, setTickets] = useState<TicketListItem[]>([]);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -75,7 +59,7 @@ export function Dashboard() {
       setLoading(true);
       try {
         const [ticketsRes, managersRes] = await Promise.all([
-          api.listTickets({ limit: '500', offset: '0' }),
+          api.listTickets({ limit: '200', offset: '0' }),
           api.listManagers(),
         ]);
         if (active) {
@@ -123,7 +107,8 @@ export function Dashboard() {
 
     const officeMap: Record<string, number> = {};
     tickets.forEach(t => {
-      const key = t.office || 'Unassigned';
+      const office = (t.office || '').toUpperCase();
+      const key = office && office !== 'UNKNOWN' ? t.office! : 'Unassigned';
       officeMap[key] = (officeMap[key] || 0) + 1;
     });
 
@@ -172,85 +157,62 @@ export function Dashboard() {
     capacity: Math.max(20, m.current_load + 5),
   }));
 
-  const handleRunProcessing = async () => {
-    setIsProcessing(true);
-    try {
-      await api.processTickets();
-      showToast('Processing completed', 'success');
-      const updated = await api.listTickets({ limit: '500', offset: '0' });
-      setTickets(updated.items || []);
-    } catch (e: any) {
-      showToast(e?.message || 'Processing failed', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1>Dashboard</h1>
+          <h1>{t('Dashboard')}</h1>
           <p className="text-[rgb(var(--color-muted-foreground))] mt-1">
-            Real-time ticket processing and assignment overview
+            {t('Real-time ticket processing and assignment overview')}
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="ghost" onClick={() => setShowDocs(!showDocs)}>
-            <Info className="w-4 h-4" />
-            {showDocs ? 'Hide' : 'Show'} Documentation
-          </Button>
           <Button variant="outline" onClick={() => navigate('/import')}>
             <Upload className="w-4 h-4" />
-            Import CSV
-          </Button>
-          <Button variant="primary" onClick={handleRunProcessing} disabled={isProcessing} loading={isProcessing}>
-            <Play className="w-4 h-4" />
-            Run Processing
+            {t('Import CSV')}
           </Button>
         </div>
       </div>
 
-      {/* Documentation Panel */}
-      {showDocs && <DocumentationPanel />}
+      {/* Documentation Panel removed from dashboard */}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-5 gap-4">
         <KPICard
-          title="Total Tickets"
+          title={t('Total Tickets')}
           value={analytics.totalTickets}
-          subtitle="Last 7 days"
+          subtitle={t('Last 7 days')}
           trend={12}
           icon={CheckCircle2}
           variant="default"
         />
         <KPICard
-          title="Assigned"
+          title={t('Assigned')}
           value={analytics.assigned}
-          subtitle={analytics.totalTickets ? `${((analytics.assigned / analytics.totalTickets) * 100).toFixed(1)}% success rate` : '—'}
+          subtitle={analytics.totalTickets ? `${((analytics.assigned / analytics.totalTickets) * 100).toFixed(1)}% ${t('success rate')}` : '—'}
           trend={8}
           icon={CheckCircle2}
           variant="success"
         />
         <KPICard
-          title="Unassigned"
+          title={t('Unassigned')}
           value={analytics.unassigned}
-          subtitle="Awaiting assignment"
+          subtitle={t('Awaiting assignment')}
           icon={AlertCircle}
           variant="warning"
         />
         <KPICard
-          title="Avg Priority"
+          title={t('Avg Priority')}
           value={analytics.avgPriority.toFixed(1)}
-          subtitle="Out of 10"
+          subtitle={t('Out of 10')}
           icon={TrendingUp}
           variant="default"
         />
         <KPICard
-          title="Negative Sentiment"
+          title={t('Negative Sentiment')}
           value={`${analytics.negativeSentimentPct}%`}
-          subtitle={`${analytics.sentimentDistribution[2].value} tickets`}
+          subtitle={`${analytics.sentimentDistribution[2].value} ${t('tickets')}`}
           trend={-5}
           icon={AlertCircle}
           variant="error"
@@ -261,7 +223,7 @@ export function Dashboard() {
       <div className="grid grid-cols-3 gap-6">
         {/* Ticket Types */}
         <Card>
-          <CardHeader title="Ticket Types" description="Distribution by category" />
+          <CardHeader title={t('Ticket Types')} description={t('Distribution by category')} />
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={analytics.ticketTypes}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-border))" />
@@ -281,7 +243,7 @@ export function Dashboard() {
 
         {/* Sentiment Distribution */}
         <Card>
-          <CardHeader title="Sentiment Analysis" description="Overall ticket sentiment" />
+          <CardHeader title={t('Sentiment Distribution')} description={t('Overall ticket sentiment')} />
           <ResponsiveContainer width="100%" height={240}>
             <PieChart>
               <Pie
@@ -320,7 +282,7 @@ export function Dashboard() {
 
         {/* Tickets Over Time */}
         <Card>
-          <CardHeader title="Ticket Volume" description="Last 7 days trend" />
+          <CardHeader title={t('Ticket Volume')} description={t('Last 7 days trend')} />
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={analytics.ticketsOverTime}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-border))" />
@@ -343,7 +305,7 @@ export function Dashboard() {
       <div className="grid grid-cols-2 gap-6">
         {/* Office Split */}
         <Card>
-          <CardHeader title="Office Distribution" description="Ticket assignment by location" />
+          <CardHeader title={t('Office Distribution')} description={t('Ticket assignment by location')} />
           <div className="space-y-4">
             {analytics.officeDistribution.slice(0, 5).map((office, idx) => (
               <div key={office.name}>
@@ -365,7 +327,7 @@ export function Dashboard() {
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-gray-400" />
-                  <span className="text-sm font-medium">Unassigned</span>
+                  <span className="text-sm font-medium">{t('Unassigned')}</span>
                 </div>
                 <span className="text-sm font-medium">{analytics.unassignedCount}</span>
               </div>
@@ -381,16 +343,16 @@ export function Dashboard() {
         {/* Manager Load */}
         <Card padding={false}>
           <div className="p-6">
-            <CardHeader title="Manager Workload" description="Current assignment distribution" className="mb-0" />
+            <CardHeader title={t('Manager Workload')} description={t('Current assignment distribution')} className="mb-0" />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-y border-[rgb(var(--color-border))] bg-[rgb(var(--color-muted))]">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Manager</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Office</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Skills</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">Load</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Manager')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Office')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Skills')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[rgb(var(--color-muted-foreground))] uppercase">{t('Load')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--color-border))]">
@@ -443,19 +405,19 @@ export function Dashboard() {
       {/* Recent Errors */}
       <Card>
         <CardHeader
-          title="Recent System Errors"
-          description="Latest processing issues requiring attention"
+          title={t('Recent System Errors')}
+          description={t('Latest processing issues requiring attention')}
           action={
             <Button variant="ghost" size="sm" onClick={() => navigate('/tickets')}>
               <Eye className="w-4 h-4" />
-              View All
+              {t('View All')}
             </Button>
           }
         />
         {loading ? (
           <div className="p-6 text-sm text-[rgb(var(--color-muted-foreground))]">Loading errors...</div>
         ) : systemErrors.length === 0 ? (
-          <div className="p-6 text-sm text-[rgb(var(--color-muted-foreground))]">No recent errors.</div>
+          <div className="p-6 text-sm text-[rgb(var(--color-muted-foreground))]">{t('No recent errors.')}</div>
         ) : (
           <div className="space-y-3">
             {systemErrors.map((error) => (

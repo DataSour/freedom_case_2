@@ -25,6 +25,7 @@ export interface Manager {
   role: string;
   skills: string[];
   current_load: number;
+  baseline_load?: number | null;
   updated_at: string;
 }
 
@@ -74,4 +75,34 @@ export interface ImportSummary {
 export interface RunSummary {
   events: Array<Record<string, any>>;
   counts: Record<string, any>;
+}
+
+export interface BusinessUnit {
+  id: string;
+  name: string;
+  city?: string;
+  address?: string;
+  lat?: number | null;
+  lon?: number | null;
+  geocode_display_name?: string | null;
+  geocoded_at?: string | null;
+}
+
+export interface AssistantChatRequest {
+  message: string;
+  history?: Array<{ role: string; content: string }>;
+}
+
+export interface AssistantChatResponse {
+  answer: string;
+}
+
+export interface AnalyticsQueryRequest {
+  group_by: string[];
+  filters?: Record<string, string>;
+  limit?: number;
+}
+
+export interface AnalyticsQueryResponse {
+  items: Array<Record<string, any>>;
 }

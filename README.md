@@ -51,6 +51,10 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `DATABASE_URL` (required)
 - `ADMIN_KEY` (required for admin endpoints)
 - `AI_URL` (ML service base URL; default in docker is `http://ml:8000`)
+- `GEOCODER_PROVIDER` (default `nominatim`)
+- `GEOCODER_USER_AGENT` (default `fire-hackathon-demo`, required by Nominatim)
+- `GEOCODER_MIN_INTERVAL_MS` (default `1000`)
+- `COUNTRY_DEFAULT` (default `Kazakhstan`)
 - `CORS_ALLOWED_ORIGINS` (default `*`)
 - `REQUEST_TIMEOUT` (default `30s`)
 - `LOG_LEVEL` (default `info`)
@@ -66,8 +70,22 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 - `GET /api/tickets?status=&office=&language=&q=&limit=&offset=`
 - `GET /api/tickets/:id`
 - `GET /api/managers?office=&skill=`
+- `GET /api/business-units?geocoded=&q=`
+- `POST /api/business-units/regeocode` (admin, optional `force=true`)
 - `POST /api/tickets/:id/reassign` (admin)
+- `POST /api/tickets/:id/resolve` (admin)
 - `GET /healthz`
+
+## Manager Load
+Manager load is derived by the backend from active assignments (`ASSIGNED`, `IN_PROGRESS`).
+The `managers.csv` file no longer includes a `current_load` column.
+If a CSV provides load values, they are stored as `baseline_load` and displayed as `baseline + active` in the UI.
+
+## Frontend Map Guidance
+To render office locations on a map:
+1. Call `GET /api/business-units` and filter to items with `lat` and `lon`.
+2. Use Leaflet + OpenStreetMap tiles.
+3. For each unit, place a marker and show a popup with office name, address, and `geocode_display_name`.
 
 ## ML / Data Assets
 See `ml/README.md`.

@@ -18,6 +18,15 @@ type EligibilityResult struct {
 	NeedsLang  string
 }
 
+type CrossOfficeResult struct {
+	Assigned     bool
+	CrossOffice  bool
+	ReasonCode   string
+	ReasonText   string
+	Local        EligibilityResult
+	Global       EligibilityResult
+}
+
 type EligibilityStage struct {
 	Name       string
 	Candidates []models.Manager
@@ -95,6 +104,40 @@ func FilterEligibleManagers(managers []models.Manager, ticket models.Ticket, ai 
 
 	result.Eligible = afterLang
 	return result
+}
+
+func EvaluateCrossOffice(local []models.Manager, global []models.Manager, ticket models.Ticket, ai models.AIAnalysis) CrossOfficeResult {
+	localElig := FilterEligibleManagers(local, ticket, ai)
+	if len(localElig.Eligible) > 0 {
+		return CrossOfficeResult{
+			Assigned:    true,
+			CrossOffice: false,
+			ReasonCode:  "ASSIGNED_LOCAL",
+			ReasonText:  "Assigned in local office",
+			Local:       localElig,
+		}
+	}
+
+	globalElig := FilterEligibleManagers(global, ticket, ai)
+	if len(globalElig.Eligible) > 0 {
+		return CrossOfficeResult{
+			Assigned:    true,
+			CrossOffice: true,
+			ReasonCode:  "ASSIGNED_CROSS_OFFICE",
+			ReasonText:  "No eligible managers in local office; assigned cross-office",
+			Local:       localElig,
+			Global:      globalElig,
+		}
+	}
+
+	return CrossOfficeResult{
+		Assigned:    false,
+		CrossOffice: true,
+		ReasonCode:  "NO_ELIGIBLE_MANAGERS_GLOBAL",
+		ReasonText:  "No eligible managers globally",
+		Local:       localElig,
+		Global:      globalElig,
+	}
 }
 
 func PickAssignee(ticketID string, eligible []models.Manager) (models.Manager, []models.Manager) {

@@ -9,9 +9,11 @@ import {
   BarChart3, 
   Settings,
   Zap,
-  Palette
+  Palette,
+  MessageSquare
 } from 'lucide-react';
 import { useRole } from '../../contexts/RoleContext';
+import { useI18n } from '../../contexts/I18nContext';
 
 interface NavItem {
   name: string;
@@ -26,12 +28,12 @@ const navItems: NavItem[] = [
   { name: 'Managers', path: '/managers', icon: <Users className="w-5 h-5" />, adminOnly: true },
   { name: 'Import', path: '/import', icon: <Upload className="w-5 h-5" />, adminOnly: true },
   { name: 'Analytics', path: '/analytics', icon: <BarChart3 className="w-5 h-5" />, adminOnly: true },
-  { name: 'Design System', path: '/design-system', icon: <Palette className="w-5 h-5" /> },
-  { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
+  { name: 'Assistant', path: '/assistant', icon: <MessageSquare className="w-5 h-5" />, adminOnly: true },
 ];
 
 export function Sidebar() {
   const { role } = useRole();
+  const { t } = useI18n();
 
   const filteredNavItems = navItems.filter(item => 
     !item.adminOnly || role === 'admin'
@@ -68,7 +70,7 @@ export function Sidebar() {
             }
           >
             {item.icon}
-            {item.name}
+            {t(item.name)}
           </NavLink>
         ))}
       </nav>

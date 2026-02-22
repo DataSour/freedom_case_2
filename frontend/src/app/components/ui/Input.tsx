@@ -4,9 +4,11 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
   icon?: React.ReactNode;
+  size?: 'sm' | 'md';
 }
 
-export function Input({ label, error, icon, className = '', ...props }: InputProps) {
+export function Input({ label, error, icon, size = 'md', className = '', ...props }: InputProps) {
+  const sizeClass = size === 'sm' ? 'h-8 text-sm' : 'h-10';
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
@@ -21,7 +23,7 @@ export function Input({ label, error, icon, className = '', ...props }: InputPro
           </div>
         )}
         <input
-          className={`w-full h-10 px-3 ${icon ? 'pl-10' : ''} rounded-lg border border-[rgb(var(--color-border))] bg-[rgb(var(--color-card))] text-[rgb(var(--color-foreground))] placeholder:text-[rgb(var(--color-muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--color-ring))] focus:border-transparent transition-all ${className}`}
+          className={`w-full ${sizeClass} px-3 ${icon ? 'pl-10' : ''} rounded-lg border border-[rgb(var(--color-border))] bg-[rgb(var(--color-card))] text-[rgb(var(--color-foreground))] placeholder:text-[rgb(var(--color-muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--color-ring))] focus:border-transparent transition-all ${className}`}
           {...props}
         />
       </div>
