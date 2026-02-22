@@ -48,19 +48,18 @@ SYSTEM_PROMPT = """\
 - Спам
 
 ПРАВИЛА:
-1. Тональность (field: sentiment) определяется ИСКЛЮЧИТЕЛЬНО по эмоциональному тону клиента, а НЕ по серьёзности или сути проблемы:
-   - Позитивный: благодарность, похвала, довольство.
-   - Нейтральный: вежливое описание проблемы без эмоций, простой запрос, просьба о помощи.
-   - Негативный: ТОЛЬКО если есть явное раздражение, угрозы, ругань, оскорбления, агрессивные требования.
-   ВАЖНО:
-   - Серьёзность проблемы (блокировка, мошенничество, потеря денег) НЕ влияет на тональность. \
-Если клиент вежливо описывает серьёзную проблему — это Нейтральный.
-   - Срочность ("срочно", "быстро", "в течение N минут") сама по себе НЕ делает тональность негативной.
-   - "Добрый день/вечер", "прошу помочь", "с уважением" — маркеры Нейтрального тона.
-   - Негативный ставь ТОЛЬКО при наличии явной агрессии, угроз или оскорблений в тексте.
+1. Тональность (field: sentiment) — это ЭМОЦИОНАЛЬНЫЙ ФИЛЬТР, а не технический статус:
+   - НЕЙТРАЛЬНЫЙ (Default): Если клиент просто описывает проблему, баг, сбой или задает вопрос, даже если ситуация критическая (потеря денег, блокировка). Если в тексте есть "Добрый день", "Здравствуйте", "Прошу помочь" — это 100% Нейтральный.
+   - НЕГАТИВНЫЙ: Ставить ТОЛЬКО при наличии открытой агрессии, капса (КРИК), мата, прямых оскорблений или угроз ("вы мошенники", "я на вас в суд подам", "бесите"). 
+   - ПОЗИТИВНЫЙ: Явная благодарность.
+   ВАЖНО: Описание ошибки в приложении (даже если оно не работает неделю) — это НЕ негатив, это информационное сообщение (Нейтральный).
+   ПРИМЕРЫ ДЛЯ КЛАССИФИКАЦИИ:
+- "Добрый день. Приложение упало, не могу войти." -> sentiment: "Нейтральный" (т.к. вежливое приветствие и просто описание факта).
+- "Снова сбой, с 18:00 не заходит в портфель." -> sentiment: "Нейтральный" (т.к. нет оскорблений, просто констатация).
+- "ЧТО ЗА ГОВНО У ВАС, ВСЁ СЛОМАЛОСЬ!!!" -> sentiment: "Негативный" (т.к. капс и агрессия).
 2. Приоритет (field: priority): целое число от 1 до 10.
 3. Язык (field: language): KZ, ENG, RU. По умолчанию RU.
-4. Summary (field: summary): 1-2 предложения сути + рекомендация для менеджера.
+4. Summary (field: summary): 1-2 предложения сути + рекомендация для менеджера. ЯЗЫК summary ДОЛЖЕН совпадать с полем language: если language=ENG — пиши summary на английском, если KZ — на казахском, если RU — на русском.
 5. ФОРМАТ ОТВЕТА: Только валидный JSON. Никакого лишнего текста.
 6. Оффтопик: если запрос не относится к финансовым услугам (например, личные просьбы, \
 бытовые темы, реклама сторонних товаров), классифицируй его как "Консультация", \
@@ -88,6 +87,32 @@ _geocoder = Nominatim(user_agent="fire_geocoder")
 
 MODEL_TEXT = "llama-3.3-70b-versatile"
 MODEL_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+def _is_explicitly_negative(t: str) -> bool:
+    if not t:
+        return False
+    s = t.lower()
+    bad = [
+        "ненавиж", "отврат", "ужас", "хам", "мраз", "туп", "лох", "скот",
+        "мошенн", "вор", "обман", "сволоч", "чёрт", "сука", "бля", "хрень",
+        "подаю в суд", "подам в суд", "верните деньги немедленно", "вы меня достали",
+        "fuck", "shit", "scam", "thief", "thieves", "liar", "hate", "terrible", "awful", "disgust",
+        "алаяқ", "ұры", "жек көрем", "жаман", "масқара"
+    ]
+    if any(x in s for x in bad):
+        return True
+    exclamations = s.count("!") >= 2
+    caps = any(w.isupper() and len(w) >= 4 for w in re.findall(r"[A-ZА-ЯƏЁӨҒІҚҢҮҰҺ]+", t))
+    demanding = any(x in s for x in ["немедленно", "срочно исправьте", "я требую", "вы обязаны"])
+    return exclamations or (caps and demanding)
+
+def enforce_sentiment_rules(res: dict, original_text: str) -> dict:
+    out = dict(res or {})
+    sent = out.get("sentiment")
+    if sent in ("Негативный", "negativ", "negative"):
+        if not _is_explicitly_negative(original_text or ""):
+            out["sentiment"] = "Нейтральный"
+    return out
 
 
 def encode_image_base64(image_path: str) -> str:
@@ -166,14 +191,18 @@ def analyze(
             client = _get_client()
             chat_completion = client.chat.completions.create(**kwargs)
             raw = chat_completion.choices[0].message.content
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            parsed = enforce_sentiment_rules(parsed, text or "")
+            return parsed
         except json.JSONDecodeError as exc:
             # Попытка извлечь JSON из текста (vision-модель может обернуть его в markdown)
             if raw:
                 m = re.search(r'\{[^{}]*"type"[^{}]*\}', raw, re.DOTALL)
                 if m:
                     try:
-                        return json.loads(m.group())
+                        parsed = json.loads(m.group())
+                        parsed = enforce_sentiment_rules(parsed, text or "")
+                        return parsed
                     except json.JSONDecodeError:
                         pass
             last_error = exc
@@ -319,7 +348,7 @@ def get_nearest_unit(
 
     is_foreign = (
         client_country
-        and str(client_country).lower() not in ("казахстан", "kazakhstan", "kz", "nan", "")
+        and str(client_country).lower() not in ("қазақстан", "qazaqstan", "рк", "rk", "казахстан", "kazakhstan", "kz", "nan", "")
     )
 
     if client_lat is None or client_lon is None or is_foreign:
